@@ -5,3 +5,7 @@ tutorials/
 
 .ipynb_checkpoints/
 .idea/
+__pycache__
+
+# Media files
+simulation.mp4
