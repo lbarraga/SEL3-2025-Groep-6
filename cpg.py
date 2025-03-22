@@ -1,6 +1,5 @@
 import functools
-from typing import Callable, List
-from typing import Tuple
+from typing import Callable
 
 import chex
 import jax
@@ -12,10 +11,10 @@ from config import morphology_specification, environment_configuration
 
 def euler_solver(
     current_time: float,
-    y: float,
-    derivative_fn: Callable[[float, float], float],
+    y: jnp.ndarray,
+    derivative_fn: Callable[[float, jnp.ndarray], jnp.ndarray],
     delta_time: float
-) -> float:
+) -> jnp.ndarray:
     slope = derivative_fn(current_time, y)
     next_y = y + delta_time * slope
     return next_y
@@ -35,7 +34,6 @@ class CPGState:
     R: jnp.ndarray
     X: jnp.ndarray
     omegas: jnp.ndarray
-    rhos: jnp.ndarray
 
 
 class CPG:
@@ -57,23 +55,12 @@ class CPG:
         return self._weights.shape[0]
 
     @staticmethod
-    def phase_de(
-        weights: jnp.ndarray,
-        amplitudes: jnp.ndarray,
-        phases: jnp.ndarray,
-        phase_biases: jnp.ndarray,
-        omegas: jnp.ndarray
-    ) -> jnp.ndarray:
-        @jax.vmap  # vectorizes this function for us over an additional batch dimension (in this case over all oscillators)
-        def sine_term(phase_i: float, phase_biases_i: float) -> jnp.ndarray:
-            return jnp.sin(phases - phase_i - phase_biases_i)
-
-        couplings = jnp.sum(weights * amplitudes * sine_term(phase_i=phases, phase_biases_i=phase_biases), axis=1)
-        return omegas + couplings
+    def phase_de(omegas: jnp.ndarray) -> jnp.ndarray:
+        return omegas # No coupling, so we return just the omegas
 
     @staticmethod
     def second_order_de(
-        gain: jnp.ndarray,
+        gain: float,
         modulator: jnp.ndarray,
         values: jnp.ndarray,
         dot_values: jnp.ndarray
@@ -107,8 +94,7 @@ class CPG:
             time=0.0,
             R=jnp.zeros(self.num_oscillators),
             X=jnp.zeros(self.num_oscillators),
-            omegas=jnp.zeros(self.num_oscillators),
-            rhos=jnp.zeros_like(self._weights)
+            omegas=jnp.zeros(self.num_oscillators)
         )
 
     @functools.partial(jax.jit, static_argnums=(0,))
@@ -117,13 +103,7 @@ class CPG:
         new_phases = self._solver(
             current_time=state.time,
             y=state.phases,
-            derivative_fn=lambda t,y: self.phase_de(
-                omegas=state.omegas,
-                amplitudes=state.amplitudes,
-                phases=y,
-                phase_biases=state.rhos,
-                weights=self._weights
-            ),
+            derivative_fn=lambda t,y: self.phase_de(omegas=state.omegas),
             delta_time=self._dt
         )
         new_dot_amplitudes = self._solver(
@@ -173,100 +153,29 @@ class CPG:
 
 
 def create_cpg() -> CPG:
-    ip_oscillator_indices = jnp.arange(0, 10, 2)
-    oop_oscillator_indices = jnp.arange(1, 10, 2)
-
-    adjacency_matrix = jnp.zeros((10, 10))
-    # Connect oscillators within an arm
-    adjacency_matrix = adjacency_matrix.at[ip_oscillator_indices, oop_oscillator_indices].set(1)
-    # Connect IP oscillators of neighbouring arms
-    adjacency_matrix = adjacency_matrix.at[
-        ip_oscillator_indices, jnp.concatenate((ip_oscillator_indices[1:], jnp.array([ip_oscillator_indices[0]])))
-    ].set(1)
-    # Connect OOP oscillators of neighbouring arms
-    adjacency_matrix = adjacency_matrix.at[
-        oop_oscillator_indices, jnp.concatenate((oop_oscillator_indices[1:], jnp.array([oop_oscillator_indices[0]]))
-    )].set(1)
-
-    # Make adjacency matrix symmetric (i.e. make all connections bi-directional)
-    adjacency_matrix = jnp.maximum(adjacency_matrix, adjacency_matrix.T)
-
     return CPG(
-        weights=10 * adjacency_matrix,
+        weights=jnp.zeros((10, 10)), # no coupling
         amplitude_gain=40,
         offset_gain=40,
         dt=environment_configuration.control_timestep
     )
 
 
-def get_oscillator_indices_for_arm(arm_index: int) -> Tuple[int, int]:
-    return arm_index * 2, arm_index * 2 + 1
-
-
 @jax.jit
 def modulate_cpg(
-    cpg_state: CPGState,
-    leading_arm_index: int,
-    max_joint_limit: float
+        cpg_state: CPGState,
+        new_R: jnp.ndarray,
+        new_X: jnp.ndarray,
+        new_omega: float,
+        max_joint_limit: float
 ) -> CPGState:
-    left_rower_arm_indices = [(leading_arm_index - 1) % 5, (leading_arm_index - 2) % 5]
-    right_rower_arm_indices = [(leading_arm_index + 1) % 5, (leading_arm_index + 2) % 5]
 
-    # TODO: unused, so remove?
-    # leading_arm_ip_oscillator_index, leading_arm_oop_oscillator_index = get_oscillator_indices_for_arm(arm_index=leading_arm_index)
+    X = jnp.clip(new_X, -max_joint_limit, max_joint_limit)
+    R = jnp.clip(new_R, -max_joint_limit, max_joint_limit)
+    omegas = jnp.broadcast_to(new_omega, R.shape)
 
-    R = jnp.zeros_like(cpg_state.R)
-    X = jnp.zeros_like(cpg_state.X)
-    rhos = jnp.zeros_like(cpg_state.rhos)
-    omegas = 2 * jnp.pi * jnp.ones_like(cpg_state.omegas)
-    phases_bias_pairs = []
-
-    def modulate_leading_arm(_X: jnp.ndarray, _arm_index: int) -> jnp.ndarray:
-        ip_oscillator_index, oop_oscillator_index = get_oscillator_indices_for_arm(arm_index=_arm_index)
-        return _X.at[oop_oscillator_index].set(max_joint_limit)
-
-    def modulate_left_rower(_R: jnp.ndarray, _arm_index: int) -> Tuple[jnp.ndarray, List[Tuple[int, int, float]]]:
-        ip_oscillator_index, oop_oscillator_index = get_oscillator_indices_for_arm(arm_index=_arm_index)
-        _R = _R.at[ip_oscillator_index].set(max_joint_limit)
-        _R = _R.at[oop_oscillator_index].set(max_joint_limit)
-        _phase_bias_pairs = [(ip_oscillator_index, oop_oscillator_index, jnp.pi / 2)]
-        return _R, _phase_bias_pairs
-
-    def modulate_right_rower(_R: jnp.ndarray, _arm_index: int) -> Tuple[jnp.ndarray, List[Tuple[int, int, float]]]:
-        ip_oscillator_index, oop_oscillator_index = get_oscillator_indices_for_arm(arm_index=_arm_index)
-        _R = _R.at[ip_oscillator_index].set(max_joint_limit)
-        _R = _R.at[oop_oscillator_index].set(max_joint_limit)
-        _phase_bias_pairs = [(ip_oscillator_index, oop_oscillator_index, -jnp.pi / 2)]
-        return _R, _phase_bias_pairs
-
-    def phase_biases_second_rowers(_left_arm_index: int, _right_arm_index: int) -> List[Tuple[int, int, float]]:
-        left_ip_oscillator_index, _ = get_oscillator_indices_for_arm(arm_index=_left_arm_index)
-        right_ip_oscillator_index, _ = get_oscillator_indices_for_arm(arm_index=_right_arm_index)
-        _phase_bias_pairs = [(left_ip_oscillator_index, right_ip_oscillator_index, jnp.pi)]
-        return _phase_bias_pairs
-
-    X = modulate_leading_arm(_X=X, _arm_index=leading_arm_index)
-
-    R, phb = modulate_left_rower(_R=R, _arm_index=left_rower_arm_indices[0])
-    phases_bias_pairs += phb
-
-    R, phb = modulate_left_rower(_R=R, _arm_index=left_rower_arm_indices[1])
-    phases_bias_pairs += phb
-
-    R, phb = modulate_right_rower(_R=R, _arm_index=right_rower_arm_indices[0])
-    phases_bias_pairs += phb
-
-    R, phb = modulate_right_rower(_R=R, _arm_index=right_rower_arm_indices[1])
-    phases_bias_pairs += phb
-
-    phases_bias_pairs += phase_biases_second_rowers(_left_arm_index=left_rower_arm_indices[1], _right_arm_index=right_rower_arm_indices[1])
-
-    for oscillator1, oscillator2, bias in phases_bias_pairs:
-        rhos = rhos.at[oscillator1, oscillator2].set(bias)
-        rhos = rhos.at[oscillator2, oscillator1].set(-bias)
-
-    # noinspection PyUnresolvedReferences
-    return cpg_state.replace(R=R, X=X, rhos=rhos, omegas=omegas)
+    # Return the updated CPGState with modulated values
+    return cpg_state.replace(R=R, X=X, omegas=omegas)
 
 
 @jax.jit
