@@ -3,6 +3,7 @@ from functools import partial
 import config
 from cpg import *
 from environment import *
+from neural_network import BrittleStarNN
 from render import *
 
 rng = jax.random.PRNGKey(seed=0)
@@ -20,13 +21,32 @@ jit_reset = jax.jit(env.reset)
 
 cpg = create_cpg()
 cpg_state = cpg.reset(rng=jax.random.PRNGKey(0))
-# We set the max_joint_limit to only 25% of the true joint range of motion (you can test yourself what happens if we don't by changing this value).
-cpg_state = modulate_cpg(cpg_state=cpg_state, leading_arm_index=0, max_joint_limit=env.action_space.high[0] * 0.25)
+
+# init neural network
+model = BrittleStarNN()
+params = model.init(rng, jnp.zeros((6,)))
 
 done = False
 frames = []
 env_state = jit_reset(rng=jax.random.PRNGKey(seed=0))
 while not (env_state.terminated | env_state.truncated):
+
+    # TODO get real position of brittle star and target
+    current_position = jax.random.uniform(rng, (3,), minval=-1.0, maxval=1.0)
+    target_position = jax.random.uniform(rng, (3,), minval=-1.0, maxval=1.0)
+    nn_input = jnp.concatenate([current_position, target_position])
+
+    output = model.apply(params, nn_input)
+    new_R, new_X, new_omega = output[:10], output[10:20], output[20]
+
+    cpg_state = modulate_cpg(
+        cpg_state=cpg_state,
+        new_R=new_R,
+        new_X=new_X,
+        new_omega=new_omega,
+        max_joint_limit=env.action_space.high[0] * 0.25
+    )
+
     cpg_state = cpg.step(state=cpg_state)
     actions = map_cpg_outputs_to_actions(cpg_state=cpg_state)
     env_state = env_step_fn(state=env_state, action=actions)
