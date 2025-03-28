@@ -21,14 +21,17 @@ def create_directed_environment(
         backend = backend
     )
 
-def get_target_position(env: MJXEnvState):
+def get_target_position(env: MJXEnvState) -> jnp.array:
     return jnp.concatenate([env.info["xy_target_position"], jnp.array([0.0])])
 
-def get_brittle_star_position(env: MJXEnvState):
+def get_brittle_star_position(env: MJXEnvState) -> jnp.array:
     return env.observations["disk_position"]
 
-def get_direction_front_arm(env: MJXEnvState):
-    return None
+def get_disk_rotation(env: MJXEnvState) -> jnp.array:
+    return env.observations["disk_rotation"]
 
-def get_direction_to_target(env: MJXEnvState):
+def get_joint_positions(env: MJXEnvState) -> jnp.array:
+    return env.observations["joint_positions"]
+
+def get_direction_to_target(env: MJXEnvState) -> jnp.array:
     return env.observations["unit_xy_direction_to_target"]
