@@ -3,12 +3,16 @@ from biorobot.brittle_star.environment.directed_locomotion.shared import \
 from biorobot.brittle_star.mjcf.arena.aquarium import AquariumArenaConfiguration
 from biorobot.brittle_star.mjcf.morphology.specification.default import default_brittle_star_morphology_specification
 
+NUM_ARMS = 5
+NUM_SEGMENTS_PER_ARM = 3
+ARENA_SIZE = (2, 2)
+
 morphology_specification = default_brittle_star_morphology_specification(
-        num_arms=5, num_segments_per_arm=3, use_p_control=True, use_torque_control=False
+        num_arms=NUM_ARMS, num_segments_per_arm=NUM_SEGMENTS_PER_ARM, use_p_control=True, use_torque_control=False
 )
 
 arena_configuration = AquariumArenaConfiguration(
-        size=(1.5, 1.5), sand_ground_color=False, attach_target=True, wall_height=1.5, wall_thickness=0.1
+        size=ARENA_SIZE, sand_ground_color=False, attach_target=True, wall_height=1.5, wall_thickness=0.1
 )
 
 environment_configuration = BrittleStarDirectedLocomotionEnvironmentConfiguration(

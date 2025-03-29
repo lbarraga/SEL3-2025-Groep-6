@@ -15,9 +15,8 @@ env = create_directed_environment(
 )
 
 # Fix the target location
-env_fixed_target_reset_fn = jax.jit(partial(env.reset, target_position=(-1.25, 0.75, 0.)))
 env_step_fn = jax.jit(env.step)
-jit_reset = jax.jit(env.reset)
+jit_reset = jax.jit(partial(env.reset, target_position=(-1.25, 0.75, 0.)))
 
 cpg = create_cpg()
 cpg_state = cpg.reset(rng=jax.random.PRNGKey(0))
@@ -28,12 +27,11 @@ params = model.init(rng, jnp.zeros((6,)))
 
 done = False
 frames = []
-env_state = jit_reset(rng=jax.random.PRNGKey(seed=0))
+env_state: MJXEnvState = jit_reset(rng=jax.random.PRNGKey(seed=0))
 while not (env_state.terminated | env_state.truncated):
 
-    # TODO get real position of brittle star and target
-    current_position = jax.random.uniform(rng, (3,), minval=-1.0, maxval=1.0)
-    target_position = jax.random.uniform(rng, (3,), minval=-1.0, maxval=1.0)
+    current_position = get_brittle_star_position(env_state)
+    target_position = get_target_position(env_state)
     nn_input = jnp.concatenate([current_position, target_position])
 
     output = model.apply(params, nn_input)
