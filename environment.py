@@ -27,11 +27,10 @@ def get_target_position(env: MJXEnvState) -> jnp.array:
 def get_brittle_star_position(env: MJXEnvState) -> jnp.array:
     return env.observations["disk_position"]
 
-def get_disk_rotation(env: MJXEnvState) -> jnp.array:
-    return env.observations["disk_rotation"]
+def get_disk_rotation(env: MJXEnvState) -> float:
+    return env.observations["disk_rotation"][-1]
 
 def get_joint_positions(env: MJXEnvState) -> jnp.array:
     return env.observations["joint_positions"]
-
 def get_direction_to_target(env: MJXEnvState) -> jnp.array:
     return env.observations["unit_xy_direction_to_target"]
