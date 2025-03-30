@@ -3,8 +3,6 @@ from stable_baselines3 import PPO
 from brittlestar_gym_environment import BrittleStarEnv
 from render import show_video
 
-print(help(stable_baselines3))
-
 # Create the environment
 env = BrittleStarEnv()
 
