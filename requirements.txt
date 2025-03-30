@@ -1,8 +1,0 @@
-chex~=0.1.89
-jax~=0.5.0
-flax~=0.10.4
-mediapy~=1.2.2
-numpy~=2.2.3
-moojoco~=1.1.5
-gymnasium~=1.1.1
-biorobot~=0.3.7
