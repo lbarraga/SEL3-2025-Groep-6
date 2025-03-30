@@ -15,6 +15,7 @@ wandb = "0.19.6"
 biorobot = "0.3.7"
 ipykernel = "^6.29.5"
 stable-baselines3 = "^2.6.0"
+overrides = "^7.7.0"
 
 
 [build-system]
