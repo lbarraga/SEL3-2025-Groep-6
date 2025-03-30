@@ -1,10 +1,12 @@
 from stable_baselines3 import PPO
 
-from brittlestar_gym_environment import make_brittle_star_env
+from brittlestar_gym_environment import BrittleStarEnv
 from render import show_video
 
+print(help(stable_baselines3))
+
 # Create the environment
-env = make_brittle_star_env()
+env = BrittleStarEnv()
 
 # Create the agent with custom hyperparameters
 model = PPO(
@@ -32,7 +34,6 @@ frames = []
 
 for _ in range(500):
     action, _states = model.predict(observation, deterministic=True)
-    print(action)
     observation, reward, terminated, truncated, info = env.step(action)
     frames.append(env.render())
 

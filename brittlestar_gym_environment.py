@@ -5,11 +5,16 @@ import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
+from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
+from biorobot.brittle_star.environment.directed_locomotion.shared import \
+    BrittleStarDirectedLocomotionEnvironmentConfiguration
+from biorobot.brittle_star.mjcf.arena.aquarium import MJCFAquariumArena, AquariumArenaConfiguration
+from biorobot.brittle_star.mjcf.morphology.morphology import MJCFBrittleStarMorphology
+from biorobot.brittle_star.mjcf.morphology.specification.default import default_brittle_star_morphology_specification
 from gymnasium import spaces
+from overrides import overrides
 
-import config
-from cpg import create_cpg, modulate_cpg, map_cpg_outputs_to_actions
-from environment import create_directed_environment
+from cpg import modulate_cpg, map_cpg_outputs_to_actions, CPG
 
 
 class BrittleStarEnv(gym.Env):
@@ -19,6 +24,36 @@ class BrittleStarEnv(gym.Env):
     This environment integrates the JAX-based brittle star simulation with
     Gym's interface, enabling compatibility with RL libraries.
     """
+
+    NUM_ARMS = 5
+    NUM_SEGMENTS_PER_ARM = 3
+    ARENA_SIZE = (2, 2)
+
+    morphology_specification = default_brittle_star_morphology_specification(
+        num_arms=NUM_ARMS,
+        num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
+        use_p_control=True,
+        use_torque_control=False
+    )
+
+    arena_configuration = AquariumArenaConfiguration(
+        size=ARENA_SIZE,
+        sand_ground_color=False,
+        attach_target=True,
+        wall_height=1.5,
+        wall_thickness=0.1
+    )
+
+    environment_configuration = BrittleStarDirectedLocomotionEnvironmentConfiguration(
+        target_distance=1.2,
+        joint_randomization_noise_scale=0.0,
+        render_mode="rgb_array",
+        simulation_time=20,
+        num_physics_steps_per_control_step=10,
+        time_scale=2,
+        camera_ids=[0, 1],
+        render_size=(480, 640)
+    )
 
     metadata = {"render_fps": 30}
 
@@ -33,29 +68,28 @@ class BrittleStarEnv(gym.Env):
         self.target_position = target_position
         self.seed_value = seed
 
-        # Create the JAX environment
-        self.env = create_directed_environment(
-            config.morphology_specification,
-            config.arena_configuration,
-            config.environment_configuration,
-            "MJX"
+        self.env = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
+            morphology=MJCFBrittleStarMorphology(specification=self.morphology_specification),
+            arena=MJCFAquariumArena(configuration=self.arena_configuration),
+            configuration=self.environment_configuration,
+            backend="MJX"
         )
 
         # Create the CPG
-        self.cpg = create_cpg()
+        self.cpg = CPG(dt=self.environment_configuration.control_timestep)
 
         # JIT compile the environment step function
         self.env_step_fn = jax.jit(self.env.step)
         self.jit_reset = jax.jit(partial(self.env.reset, target_position=target_position))
 
         # Define action space with correct bounds (flattened version)
-        # R values (8 values): -1.0 to 1.0
-        # X values (8 values): -1.0 to 1.0
+        # R values (10 values): -1.0 to 1.0
+        # X values (10 values): -1.0 to 1.0
         # omega value (1 value): 0.0 to 5.0
         self.action_space = spaces.Box(
-            low=np.concatenate([np.full(8, -1.0), np.full(8, -1.0), np.array([1.0])]),
-            high=np.concatenate([np.full(8, 1.0), np.full(8, 1.0), np.array([5.0])]),
-            shape=(17,),
+            low=np.concatenate([np.full(10, -1.0), np.full(10, -1.0), np.array([1.0])]),
+            high=np.concatenate([np.full(10, 1.0), np.full(10, 1.0), np.array([5.0])]),
+            shape=(21,),
             dtype=np.float64
         )
 
@@ -83,8 +117,8 @@ class BrittleStarEnv(gym.Env):
         Returns:
             numpy.ndarray: Current brittle star position and target position.
         """
-        current_position = self._get_brittle_star_position()
-        target_position = self._get_target_position()
+        current_position = self.get_brittle_star_position()
+        target_position = self.get_target_position()
 
         # Convert JAX arrays to NumPy for gym compatibility
         return np.concatenate([
@@ -92,26 +126,25 @@ class BrittleStarEnv(gym.Env):
             np.array(target_position)
         ])
 
-    def _get_brittle_star_position(self):
-        """Get the current position of the brittle star."""
+    def get_brittle_star_position(self):
         return self.env_state.observations["disk_position"]
 
-    def _get_target_position(self):
-        """Get the target position."""
-        return jnp.concatenate([
-            self.env_state.info["xy_target_position"],
-            jnp.array([0.0])
-        ])
+    def get_target_position(self):
+        return jnp.concatenate([self.env_state.info["xy_target_position"], jnp.array([0.0])])
+
+    def get_disk_rotation(self) -> float:
+        return self.env_state.observations["disk_rotation"][-1]
+
+    def get_joint_positions(self) -> jnp.array:
+        return self.env_state.observations["joint_positions"]
+
+    def get_direction_to_target(self) -> jnp.array:
+        return self.env_state.observations["unit_xy_direction_to_target"]
 
     def _get_reward(self) -> float:
-        """
-        Calculate the reward based on distance to target and other factors.
-
-        Returns:
-            float: The reward value.
-        """
-        current_position = self._get_brittle_star_position()
-        target_position = self._get_target_position()
+        """Calculate the reward based on distance to target and other factors. """
+        current_position = self.get_brittle_star_position()
+        target_position = self.get_target_position()
 
         # Calculate distance to target
         distance = jnp.linalg.norm(current_position - target_position)
@@ -127,42 +160,23 @@ class BrittleStarEnv(gym.Env):
 
         return float(reward)
 
-    def _get_terminated(self) -> bool:
-        """
-        Check if the episode should terminate.
-
-        Returns:
-            bool: True if the episode should terminate, False otherwise.
-        """
+    def is_terminated(self) -> bool:
+        """Check if the episode should terminate."""
         # Check if the brittle star has reached the target
-        current_position = self._get_brittle_star_position()
-        target_position = self._get_target_position()
+        current_position = self.get_brittle_star_position()
+        target_position = self.get_target_position()
         distance = jnp.linalg.norm(current_position - target_position)
 
         # Terminate if target reached or from the environment's terminated signal
         target_reached = distance < 0.1
         return bool(target_reached | self.env_state.terminated)
 
-    def _get_truncated(self) -> bool:
-        """
-        Check if the episode should be truncated (e.g., max steps reached).
-
-        Returns:
-            bool: True if the episode should be truncated, False otherwise.
-        """
+    def is_truncated(self) -> bool:
+        """Check if the episode should be truncated (e.g., max steps reached)."""
         return bool(self.env_state.truncated)
 
+    @overrides()
     def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Reset the environment to initial state.
-
-        Args:
-            seed: Optional random seed.
-            options: Additional options for resetting.
-
-        Returns:
-            Tuple containing the initial observation and info dict.
-        """
         if seed is not None:
             self.seed_value = seed
             self.rng = jax.random.PRNGKey(seed=seed)
@@ -172,13 +186,14 @@ class BrittleStarEnv(gym.Env):
         observation = self._get_observation()
         info = {
             "distance_to_target": float(jnp.linalg.norm(
-                self._get_brittle_star_position() - self._get_target_position()
+                self.get_brittle_star_position() - self.get_target_position()
             ))
         }
 
         return observation, info
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    @overrides()
+    def step(self, action: jnp.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """
         Take a step in the environment using the given action.
 
@@ -192,7 +207,7 @@ class BrittleStarEnv(gym.Env):
         action = jnp.array(action)
 
         # Extract CPG parameters from action
-        new_R, new_X, new_omega = action[:8], action[8:16], action[16]
+        new_R, new_X, new_omega = action[:10], action[10:20], action[20]
 
         # Modulate the CPG with the action
         self.cpg_state = modulate_cpg(
@@ -207,7 +222,12 @@ class BrittleStarEnv(gym.Env):
         self.cpg_state = self.cpg.step(state=self.cpg_state)
 
         # Map CPG outputs to actions
-        motor_actions = map_cpg_outputs_to_actions(cpg_state=self.cpg_state)
+        motor_actions = map_cpg_outputs_to_actions(
+            cpg_state=self.cpg_state,
+            num_arms=self.NUM_ARMS,
+            num_segments_per_arm=self.NUM_SEGMENTS_PER_ARM,
+            num_oscillators_per_arm=2 # TODO: num segments min 1?
+        )
 
         # Step the environment
         self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
@@ -215,16 +235,16 @@ class BrittleStarEnv(gym.Env):
         # Get observation, reward, and done signals
         observation = self._get_observation()
         reward = self._get_reward()
-        terminated = self._get_terminated()
-        truncated = self._get_truncated()
+        terminated = self.is_terminated()
+        truncated = self.is_truncated()
 
         # Additional info
         info = {
             "distance_to_target": float(jnp.linalg.norm(
-                self._get_brittle_star_position() - self._get_target_position()
+                self.get_brittle_star_position() - self.get_target_position()
             )),
-            "target_position": np.array(self._get_target_position()),
-            "brittle_star_position": np.array(self._get_brittle_star_position())
+            "target_position": np.array(self.get_target_position()),
+            "brittle_star_position": np.array(self.get_brittle_star_position())
         }
 
         if terminated:
@@ -245,7 +265,7 @@ class BrittleStarEnv(gym.Env):
         frame = self.env.render(state=self.env_state)
         processed_frame = post_render(
             frame,
-            environment_configuration=config.environment_configuration
+            environment_configuration=self.environment_configuration
         )
 
         # Convert JAX array to NumPy for gym compatibility
@@ -254,21 +274,3 @@ class BrittleStarEnv(gym.Env):
     def close(self):
         """Clean up resources."""
         pass
-
-
-# Utility function to create the environment
-def make_brittle_star_env(target_position=(1.25, 0.75, 0.0), seed=0):
-    """
-    Create a brittle star gym environment.
-
-    Args:
-        target_position: The target position for the brittle star to reach.
-        seed: Random seed for reproducibility.
-
-    Returns:
-        BrittleStarEnv: The created environment.
-    """
-    return BrittleStarEnv(
-        target_position=target_position,
-        seed=seed
-    )
