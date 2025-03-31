@@ -37,6 +37,7 @@ while step < 500 and not terminated and not truncated:
     action, _states = model.predict(observation, deterministic=True)
     observation, reward, terminated, truncated, info = env.step(action)
     frames.append(env.render())
+    step += 1
 
 # Save video of trained agent
 show_video(images=frames, sim_time=100, path="trained_agent.mp4")
