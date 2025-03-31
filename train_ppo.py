@@ -30,13 +30,13 @@ model.learn(total_timesteps=10000, progress_bar=True)
 observation, info = env.reset()
 frames = []
 
-for _ in range(500):
+terminated = False
+truncated = False
+step = 0
+while step < 500 and not terminated and not truncated:
     action, _states = model.predict(observation, deterministic=True)
     observation, reward, terminated, truncated, info = env.step(action)
     frames.append(env.render())
-
-    if terminated or truncated:
-        break
 
 # Save video of trained agent
 show_video(images=frames, sim_time=100, path="trained_agent.mp4")
