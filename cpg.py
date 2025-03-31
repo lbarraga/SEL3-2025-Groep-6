@@ -6,9 +6,6 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from config import morphology_specification, environment_configuration
-
-
 def euler_solver(
     current_time: float,
     y: jnp.ndarray,
@@ -39,12 +36,10 @@ class CPGState:
 class CPG:
     def __init__(
         self,
-        weights: jnp.ndarray,
-        amplitude_gain: float = 20,
-        offset_gain: float = 20,
+        amplitude_gain: float = 40,
+        offset_gain: float = 40,
         dt: float = 0.01
     ) -> None:
-        self._weights = weights
         self._amplitude_gain = amplitude_gain
         self._offset_gain = offset_gain
         self._dt = dt
@@ -52,7 +47,7 @@ class CPG:
 
     @property
     def num_oscillators(self) -> int:
-        return self._weights.shape[0]
+        return 10 # TODO dont hardcode
 
     @staticmethod
     def phase_de(omegas: jnp.ndarray) -> jnp.ndarray:
@@ -152,15 +147,6 @@ class CPG:
         )
 
 
-def create_cpg() -> CPG:
-    return CPG(
-        weights=jnp.zeros((10, 10)), # no coupling
-        amplitude_gain=40,
-        offset_gain=40,
-        dt=environment_configuration.control_timestep
-    )
-
-
 @jax.jit
 def modulate_cpg(
         cpg_state: CPGState,
@@ -178,12 +164,13 @@ def modulate_cpg(
     return cpg_state.replace(R=R, X=X, omegas=omegas)
 
 
-@jax.jit
-def map_cpg_outputs_to_actions(cpg_state: CPGState) -> jnp.ndarray:
-    num_arms = morphology_specification.number_of_arms
-    num_oscillators_per_arm = 2
-    num_segments_per_arm = morphology_specification.number_of_segments_per_arm[0]
-
+@functools.partial(jax.jit, static_argnums=(1, 2, 3))
+def map_cpg_outputs_to_actions(
+        cpg_state: CPGState,
+        num_arms: int,
+        num_segments_per_arm: int,
+        num_oscillators_per_arm: int
+) -> jnp.ndarray:
     cpg_outputs_per_arm = cpg_state.outputs.reshape((num_arms, num_oscillators_per_arm))
     cpg_outputs_per_segment = cpg_outputs_per_arm.repeat(num_segments_per_arm, axis=0)
 

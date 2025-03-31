@@ -8,4 +8,4 @@ tutorials/
 __pycache__
 
 # Media files
-simulation.mp4
+*.mp4
