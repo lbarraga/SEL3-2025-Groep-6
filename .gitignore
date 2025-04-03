@@ -9,3 +9,6 @@ __pycache__
 
 # Media files
 *.mp4
+*.zip
+
+wandb/

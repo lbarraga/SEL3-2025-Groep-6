@@ -1,19 +1,22 @@
+from stable_baselines3 import PPO
+
 from brittlestar_gym_environment import BrittleStarEnv
-from cpg import *
 from render import *
 
+model = PPO.load("trained_agent_10k.zip")
+
 env = BrittleStarEnv()
+observation, info = env.reset()
+
+
+action, _states = model.predict(observation, deterministic=True)
+env.modulate_cpg(action)
 
 frames = []
-while not (env.is_terminated() | env.is_truncated()):
+while not env.is_terminated() and not env.is_truncated():
 
-    # TODO: use model
-    action = jnp.array([
-        1, 0, 1, 0, 1, 0, 1, 0, 1, 0, # R
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, # X
-        5 # omega
-    ])
-    env.step(action)
+
+    env.single_step()
 
     frame = env.render()
     frames.append(frame)

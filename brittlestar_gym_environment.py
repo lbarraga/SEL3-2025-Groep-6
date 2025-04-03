@@ -67,6 +67,7 @@ class BrittleStarEnv(gym.Env):
         """
         self.target_position = target_position
         self.seed_value = seed
+        self.cpg_steps_per_ppo_step = 60
 
         self.env = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
             morphology=MJCFBrittleStarMorphology(specification=self.morphology_specification),
@@ -142,21 +143,24 @@ class BrittleStarEnv(gym.Env):
         return self.env_state.observations["unit_xy_direction_to_target"]
 
     def _get_reward(self) -> float:
-        """Calculate the reward based on distance to target and other factors. """
+        """Calculate the reward based on improvement in distance to target."""
         current_position = self.get_brittle_star_position()
         target_position = self.get_target_position()
 
-        # Calculate distance to target
-        distance = jnp.linalg.norm(current_position - target_position)
+        # Calculate current distance to target
+        current_distance = jnp.linalg.norm(current_position - target_position)
 
-        # Base reward is negative distance (closer = higher reward)
-        base_reward = -distance
+        # Calculate the improvement (previous distance - current distance)
+        distance_improvement = self.previous_distance - current_distance
+
+        # Store current distance for next step
+        self.previous_distance = current_distance
 
         # Add a bonus for reaching the target
-        target_reached_bonus = jnp.where(distance < 0.1, 10.0, 0.0)
+        target_reached_bonus = jnp.where(current_distance < 0.1, 10.0, 0.0)
 
         # Combine rewards
-        reward = base_reward + target_reached_bonus
+        reward = distance_improvement + target_reached_bonus
 
         return float(reward)
 
@@ -183,66 +187,89 @@ class BrittleStarEnv(gym.Env):
 
         self._initialize_states()
 
+        # Get current position and target for initial distance
+        current_position = self.get_brittle_star_position()
+        target_position = self.get_target_position()
+        self.previous_distance = float(jnp.linalg.norm(current_position - target_position))
+
         observation = self._get_observation()
         info = {
-            "distance_to_target": float(jnp.linalg.norm(
-                self.get_brittle_star_position() - self.get_target_position()
-            ))
+            "distance_to_target": self.previous_distance
         }
 
         return observation, info
 
-    @overrides()
-    def step(self, action: jnp.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """
-        Take a step in the environment using the given action.
-
-        Args:
-            action: Array of shape (17,) containing R (8), X (8), and omega (1) values.
-
-        Returns:
-            Tuple of (observation, reward, terminated, truncated, info).
-        """
+    def modulate_cpg(self, action: jnp.ndarray) -> None:
         # Convert numpy action to JAX array
         action = jnp.array(action)
 
         # Extract CPG parameters from action
         new_R, new_X, new_omega = action[:10], action[10:20], action[20]
 
-        # Modulate the CPG with the action
+        # Modulate the CPG with the action only once per PPO step
         self.cpg_state = modulate_cpg(
             cpg_state=self.cpg_state,
             new_R=new_R,
             new_X=new_X,
             new_omega=new_omega,
-            max_joint_limit=self.env.action_space.high[0] * 0.25
+            max_joint_limit=self.env.action_space.high[0]
         )
 
-        # Step the CPG
-        self.cpg_state = self.cpg.step(state=self.cpg_state)
 
-        # Map CPG outputs to actions
-        motor_actions = map_cpg_outputs_to_actions(
-            cpg_state=self.cpg_state,
-            num_arms=self.NUM_ARMS,
-            num_segments_per_arm=self.NUM_SEGMENTS_PER_ARM,
-            num_oscillators_per_arm=2 # TODO: num segments min 1?
-        )
+    @overrides()
+    def step(self, action: jnp.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """
+        Take a step in the environment using the given action.
+        The action modulates the CPG once, then lets it run for multiple steps.
+        """
+        # Convert numpy action to JAX array
+        self.modulate_cpg(action)
 
-        # Step the environment
-        self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
+        # Store initial position to calculate overall improvement
+        initial_position = self.get_brittle_star_position()
+        initial_distance = jnp.linalg.norm(initial_position - self.get_target_position())
 
-        # Get observation, reward, and done signals
+        # Run multiple CPG steps
+        for _ in range(self.cpg_steps_per_ppo_step):
+            # Step the CPG
+            self.cpg_state = self.cpg.step(state=self.cpg_state)
+
+            # Map CPG outputs to actions
+            motor_actions = map_cpg_outputs_to_actions(
+                cpg_state=self.cpg_state,
+                num_arms=self.NUM_ARMS,
+                num_segments_per_arm=self.NUM_SEGMENTS_PER_ARM,
+                num_oscillators_per_arm=2
+            )
+
+            # Step the environment
+            self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
+
+            # Check for termination
+            if self.is_terminated() or self.is_truncated():
+                break
+
+        # Calculate improvement over all CPG steps since the last PPO action
+        current_position = self.get_brittle_star_position()
+        current_distance = jnp.linalg.norm(current_position - self.get_target_position())
+        distance_improvement = initial_distance - current_distance
+
+        # Get observation, reward based on overall improvement
         observation = self._get_observation()
-        reward = self._get_reward()
+
+        # Reward based on improvement since last PPO step
+        reward = float(distance_improvement)
+        # Add bonus for reaching target
+        if current_distance < 0.1:
+            reward += 10.0
+
         terminated = self.is_terminated()
         truncated = self.is_truncated()
 
         # Additional info
         info = {
-            "distance_to_target": float(jnp.linalg.norm(
-                self.get_brittle_star_position() - self.get_target_position()
-            )),
+            "distance_to_target": float(current_distance),
+            "distance_improvement": float(distance_improvement),
             "target_position": np.array(self.get_target_position()),
             "brittle_star_position": np.array(self.get_brittle_star_position())
         }
@@ -251,6 +278,23 @@ class BrittleStarEnv(gym.Env):
             info["final_frame"] = self.render()
 
         return observation, reward, terminated, truncated, info
+
+    def single_step(self):
+        self.cpg_state = self.cpg.step(state=self.cpg_state)
+
+        # Map CPG outputs to actions
+        motor_actions = map_cpg_outputs_to_actions(
+            cpg_state=self.cpg_state,
+            num_arms=self.NUM_ARMS,
+            num_segments_per_arm=self.NUM_SEGMENTS_PER_ARM,
+            num_oscillators_per_arm=2
+        )
+
+        # Step the environment
+        self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
+
+        return self._get_observation()
+
 
     def render(self):
         """
