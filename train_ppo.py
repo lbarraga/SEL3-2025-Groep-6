@@ -4,7 +4,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 import wandb
 from brittlestar_gym_environment import BrittleStarEnv
-from render import show_video
+from render import show_video, save_video
 
 
 class ImprovedWandbCallback(BaseCallback):
@@ -84,7 +84,7 @@ model = PPO(
 )
 
 # Train the agent
-model.learn(total_timesteps=2_000, progress_bar=True, callback=wandb_callback)
+model.learn(total_timesteps=100, progress_bar=True, callback=wandb_callback)
 model.save("trained_agent")
 
 # Test the agent
@@ -102,6 +102,6 @@ while step < 500 and not terminated and not truncated:
     step += 1
 
 # Save video of trained agent
-show_video(images=frames, sim_time=100, path="trained_agent.mp4")
+save_video(images=frames, path="trained_agent.mp4")
 
 wandb.finish()

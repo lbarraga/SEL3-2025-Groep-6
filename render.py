@@ -28,6 +28,10 @@ def post_render(
     return render_output[:, :, ::-1]  # RGB to BGR
 
 
+def save_video(images: List[np.ndarray | None], path: str):
+    media.write_video(path=path, images=images)
+    os.system("xdg-open {}".format(path))
+
 def show_video(
         images: List[np.ndarray | None],
         sim_time: float,
