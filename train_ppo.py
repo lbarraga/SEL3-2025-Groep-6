@@ -1,9 +1,12 @@
+import wandb
 from stable_baselines3 import PPO
 
 from brittlestar_gym_environment import BrittleStarEnv
 from wandb_ppo_callback import SimpleBrittleStarCallback
 
 env = BrittleStarEnv(seed=55)
+
+wandb.init(project="brittle-star-ppo")
 
 # Create the agent with improved hyperparameters for one-shot parameter selection
 model = PPO(
@@ -21,5 +24,10 @@ model = PPO(
     policy_kwargs=dict(net_arch=[16, 16])
 )
 
-model.learn(total_timesteps=1000, progress_bar=True, callback=SimpleBrittleStarCallback())
+callback = SimpleBrittleStarCallback()
+model.learn(total_timesteps=200, progress_bar=True, callback=callback)
 model.save("trained_agent")
+
+artifact = wandb.Artifact("brittle_star_model", type="model")
+artifact.add_file("trained_agent.zip")
+wandb.log_artifact(artifact)

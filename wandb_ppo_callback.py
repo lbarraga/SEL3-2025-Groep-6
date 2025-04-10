@@ -10,11 +10,6 @@ class SimpleBrittleStarCallback(BaseCallback):
     def __init__(self, verbose=0):
         super().__init__(verbose)
 
-    def _init_callback(self):
-        # Initialize wandb if not already initialized
-        if not wandb.run:
-            wandb.init(project="brittle-star-ppo")
-
     def _on_step(self):
         # Log info when episode ends
         if self.locals.get("dones")[0]:
