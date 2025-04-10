@@ -3,7 +3,7 @@ from stable_baselines3 import PPO
 from brittlestar_gym_environment import BrittleStarEnv
 from render import *
 
-model = PPO.load("trained_agent_10k.zip")
+model = PPO.load("trained_agent.zip")
 
 env = BrittleStarEnv()
 observation, info = env.reset()
@@ -14,8 +14,6 @@ env.modulate_cpg(action)
 
 frames = []
 while not env.is_terminated() and not env.is_truncated():
-
-
     env.single_step()
 
     frame = env.render()

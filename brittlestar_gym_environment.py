@@ -58,16 +58,9 @@ class BrittleStarEnv(gym.Env):
     metadata = {"render_fps": 30}
 
     def __init__(self, target_position=(1.25, 0.75, 0.0), seed=0):
-        """
-        Initialize the brittle star environment.
-
-        Args:
-            target_position: The target position for the brittle star to reach.
-            seed: Random seed for reproducibility.
-        """
         self.target_position = target_position
         self.seed_value = seed
-        self.cpg_steps_per_ppo_step = 60
+        self.cpg_steps_per_ppo_step = 30
 
         self.env = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
             morphology=MJCFBrittleStarMorphology(specification=self.morphology_specification),
@@ -112,12 +105,6 @@ class BrittleStarEnv(gym.Env):
         self.env_state = self.jit_reset(rng=subkey2)
 
     def _get_observation(self) -> np.ndarray:
-        """
-        Get the current observation from the environment.
-
-        Returns:
-            numpy.ndarray: Current brittle star position and target position.
-        """
         current_position = self.get_brittle_star_position()
         target_position = self.get_target_position()
 
@@ -193,9 +180,7 @@ class BrittleStarEnv(gym.Env):
         self.previous_distance = float(jnp.linalg.norm(current_position - target_position))
 
         observation = self._get_observation()
-        info = {
-            "distance_to_target": self.previous_distance
-        }
+        info = {}
 
         return observation, info
 
@@ -225,59 +210,49 @@ class BrittleStarEnv(gym.Env):
         # Convert numpy action to JAX array
         self.modulate_cpg(action)
 
-        # Store initial position to calculate overall improvement
-        initial_position = self.get_brittle_star_position()
-        initial_distance = jnp.linalg.norm(initial_position - self.get_target_position())
+        distance_before = jnp.linalg.norm(self.get_brittle_star_position() - self.get_target_position())
 
-        # Run multiple CPG steps
-        for _ in range(self.cpg_steps_per_ppo_step):
-            # Step the CPG
-            self.cpg_state = self.cpg.step(state=self.cpg_state)
+        best_distance = distance_before
+        steps_taken = 0
+        last_progress_step = 0
+        no_progress_threshold = 20  # Stop if no progress for this many steps
+        best_improvement = 0
 
-            # Map CPG outputs to actions
-            motor_actions = map_cpg_outputs_to_actions(
-                cpg_state=self.cpg_state,
-                num_arms=self.NUM_ARMS,
-                num_segments_per_arm=self.NUM_SEGMENTS_PER_ARM,
-                num_oscillators_per_arm=2
-            )
+        while steps_taken < 300:
+            self.single_step()
+            steps_taken += 1
 
-            # Step the environment
-            self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
+            current_position = self.get_brittle_star_position()
+            target_position = self.get_target_position()
+            current_distance = jnp.linalg.norm(current_position - target_position)
 
-            # Check for termination
+            if current_distance < best_distance:
+                best_improvement = best_distance - current_distance
+                best_distance = current_distance
+                last_progress_step = steps_taken
+
             if self.is_terminated() or self.is_truncated():
                 break
 
-        # Calculate improvement over all CPG steps since the last PPO action
-        current_position = self.get_brittle_star_position()
-        current_distance = jnp.linalg.norm(current_position - self.get_target_position())
-        distance_improvement = initial_distance - current_distance
+            if (steps_taken - last_progress_step) > no_progress_threshold:
+                break
 
-        # Get observation, reward based on overall improvement
-        observation = self._get_observation()
+        distance_after = jnp.linalg.norm(self.get_brittle_star_position() - self.get_target_position())
+        improvement = distance_before - distance_after
+        target_reached_bonus = 10 if distance_after < 0.1 else 0
+        reward = float(improvement + target_reached_bonus)
 
-        # Reward based on improvement since last PPO step
-        reward = float(distance_improvement)
-        # Add bonus for reaching target
-        if current_distance < 0.1:
-            reward += 10.0
-
-        terminated = self.is_terminated()
-        truncated = self.is_truncated()
-
-        # Additional info
         info = {
-            "distance_to_target": float(current_distance),
-            "distance_improvement": float(distance_improvement),
-            "target_position": np.array(self.get_target_position()),
-            "brittle_star_position": np.array(self.get_brittle_star_position())
+            "steps_taken": steps_taken,
+            "best_distance": best_distance,
+            "reward": reward,
+            "is_terminated": self.is_terminated(),
+            "is_truncated": self.is_truncated(),
+            "best_improvement": best_improvement,
         }
 
-        if terminated:
-            info["final_frame"] = self.render()
+        return self._get_observation(), reward, self.is_terminated(), self.is_truncated(), info
 
-        return observation, reward, terminated, truncated, info
 
     def single_step(self):
         self.cpg_state = self.cpg.step(state=self.cpg_state)
@@ -292,17 +267,10 @@ class BrittleStarEnv(gym.Env):
 
         # Step the environment
         self.env_state = self.env_step_fn(state=self.env_state, action=motor_actions)
-
         return self._get_observation()
 
 
     def render(self):
-        """
-        Render the environment.
-
-        Returns:
-            numpy.ndarray: RGB array of the rendered frame.
-        """
         from render import post_render
 
         # Render the environment and post-process the frame
