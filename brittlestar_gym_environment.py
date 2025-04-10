@@ -249,6 +249,7 @@ class BrittleStarEnv(gym.Env):
             "is_terminated": self.is_terminated(),
             "is_truncated": self.is_truncated(),
             "best_improvement": best_improvement,
+            "target_reached": distance_after < 0.1,
         }
 
         return self._get_observation(), reward, self.is_terminated(), self.is_truncated(), info

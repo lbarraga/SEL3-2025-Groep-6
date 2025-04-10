@@ -23,7 +23,8 @@ class SimpleBrittleStarCallback(BaseCallback):
                 "reward": info.get("reward", 0),
                 "best_improvement": info.get("best_improvement", 0),
                 "is_terminated": int(info.get("is_terminated", False)),
-                "is_truncated": int(info.get("is_truncated", False))
+                "is_truncated": int(info.get("is_truncated", False)),
+                "target_reached": int(info.get("target_reached", False))
             })
 
         return True
