@@ -4,20 +4,18 @@ import jax.numpy as jnp
 
 from evosax import OpenES
 
-from new_env import create_evaluation_fn
+from brittle_star_environment import create_evaluation_fn
 from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM
 from wandb_evosax_logger import WandbEvosaxLogger
 
 
-# --- Hyperparameters ---
-POPULATION_SIZE = 300
-NUM_GENERATIONS = 20
+POPULATION_SIZE = 100
+NUM_GENERATIONS = 100
 SIGMA_INIT = 0.1
 SEED = 55
 WANDB_PROJECT_NAME = "evosax_brittle_star"  # Define project name
 num_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1
 
-# --- Create Config Dictionary ---
 hyperparameters = {
     "population_size": POPULATION_SIZE,
     "num_generations": NUM_GENERATIONS,
@@ -59,11 +57,6 @@ for generation in range(NUM_GENERATIONS):
         fitness=fitness,
         final_states=final_states
     )
-
-    print(f"Generation {generation + 1} | Time: {gen_time:.2f}s | "
-          f"Best Fitness: {es_state.best_fitness:.4f} | "
-          f"Mean Fitness: {jnp.mean(fitness):.4f} | "
-          f"Std Fitness: {jnp.std(fitness):.4f}")
 
 logger.log_summary(es_state)
 logger.finish()

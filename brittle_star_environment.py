@@ -24,7 +24,7 @@ class SimulationState:
     last_progress_step: jnp.ndarray
     terminated: jnp.ndarray
     truncated: jnp.ndarray
-    reward: jnp.ndarray # Note: This field in the state might become redundant
+    reward: jnp.ndarray
 
 
 def create_initial_simulation_state(env_state, cpg_state):
@@ -65,7 +65,6 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
     terminated = (current_distance < 0.1) | new_env_state.terminated
     truncated = new_env_state.truncated | ((current_step_index - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
-    # Update reward field in state just before returning if desired, or remove it
     final_reward_calc = state.initial_distance - current_distance + jnp.where(current_distance < 0.1, 10.0, 0.0)
 
     new_state = state.replace(
@@ -77,7 +76,7 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
         last_progress_step=last_progress_step,
         terminated=terminated,
         truncated=truncated,
-        reward=final_reward_calc # Update reward in state
+        reward=final_reward_calc
     )
     return new_state
 
@@ -86,7 +85,6 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
 def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, step_fn, cpg: CPG,
                       max_joint_limit: float) -> typing.Tuple[jnp.ndarray, SimulationState]: # Return type changed
     cpg_params = jnp.asarray(cpg_params)
-    num_cpg_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1
 
     new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
     new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
@@ -121,9 +119,7 @@ def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, s
     return reward, final_state
 
 
-@partial(jax.jit, static_argnames=(
-    'jit_reset', 'cpg_reset_fn', 'assemble_fn', 'run_episode_fn'
-))
+@partial(jax.jit, static_argnames=('jit_reset', 'cpg_reset_fn', 'assemble_fn', 'run_episode_fn'))
 def evaluate_single_solution(rng, params, jit_reset, cpg_reset_fn, assemble_fn, run_episode_fn, target_pos):
     rng_env, rng_cpg = jax.random.split(rng)
     initial_env_state = jit_reset(rng=rng_env, target_position=target_pos)
@@ -159,8 +155,6 @@ def create_evaluation_fn():
         target_pos=target_pos
     )
 
-    # vmap will now map over the function returning (reward, final_state)
-    # The result will be a tuple: (array_of_rewards, pytree_of_states)
     evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_partial, in_axes=(0, 0)))
     return evaluate_batch_fn
 

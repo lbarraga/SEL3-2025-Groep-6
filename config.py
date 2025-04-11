@@ -1,14 +1,12 @@
 import jax.numpy as jnp
 from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
 
-# Assuming these classes are importable from your project structure
 from biorobot.brittle_star.environment.directed_locomotion.shared import \
     BrittleStarDirectedLocomotionEnvironmentConfiguration
 from biorobot.brittle_star.mjcf.arena.aquarium import AquariumArenaConfiguration, MJCFAquariumArena
 from biorobot.brittle_star.mjcf.morphology.morphology import MJCFBrittleStarMorphology
 from biorobot.brittle_star.mjcf.morphology.specification.default import default_brittle_star_morphology_specification
 
-# --- Simulation Constants ---
 SEED = 42
 NUM_ARMS = 5
 NUM_SEGMENTS_PER_ARM = 3
@@ -16,7 +14,6 @@ NUM_OSCILLATORS_PER_ARM = 2 # Defined by CPG structure assumption
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
 NO_PROGRESS_THRESHOLD = 20 # Steps without improvement before truncating
 
-# --- Environment Configuration ---
 DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])
 
 morphology_spec = default_brittle_star_morphology_specification(
