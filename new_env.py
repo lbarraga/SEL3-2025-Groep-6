@@ -1,19 +1,18 @@
 # functional_brittle_star_env.py
+from functools import partial
+from typing import NamedTuple, Any
+
 import jax
 import jax.numpy as jnp
-import numpy as np
-from functools import partial
-from typing import NamedTuple, Dict, Any
-import time # Keep for example timing
-
 # Assume these imports work and the underlying objects/functions are JAX-compatible
 from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
-from biorobot.brittle_star.environment.directed_locomotion.shared import BrittleStarDirectedLocomotionEnvironmentConfiguration
+from biorobot.brittle_star.environment.directed_locomotion.shared import \
+    BrittleStarDirectedLocomotionEnvironmentConfiguration
 from biorobot.brittle_star.mjcf.arena.aquarium import MJCFAquariumArena, AquariumArenaConfiguration
 from biorobot.brittle_star.mjcf.morphology.morphology import MJCFBrittleStarMorphology
 from biorobot.brittle_star.mjcf.morphology.specification.default import default_brittle_star_morphology_specification
-from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
+from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
 # --- Configuration ---
 NUM_ARMS = 5
@@ -37,32 +36,34 @@ arena_configuration = AquariumArenaConfiguration(
 environment_configuration = BrittleStarDirectedLocomotionEnvironmentConfiguration(
     target_distance=1.2,
     joint_randomization_noise_scale=0.0,
-    render_mode=None,
+    render_mode="rgb_array",
     simulation_time=20,
     num_physics_steps_per_control_step=10,
     time_scale=2,
+    camera_ids=[0, 1],
+    render_size=(480, 640),
 )
 
 # --- Underlying BioRobot Env (Static Instance for Methods/Info) ---
-_bio_env_instance = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
+bio_env_instance = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
     morphology=MJCFBrittleStarMorphology(specification=morphology_specification),
     arena=MJCFAquariumArena(configuration=arena_configuration),
     configuration=environment_configuration,
     backend="MJX"
 )
 _control_timestep = environment_configuration.control_timestep
-_max_joint_limit = UPPER_BOUNDS[0]
+max_joint_limit = UPPER_BOUNDS[0]
 # Get JITted step/reset functions - Pass target_pos as runtime arg now
-_bio_env_step_fn = jax.jit(_bio_env_instance.step)
+bio_env_step_fn = jax.jit(bio_env_instance.step)
 # Reset needs the target_position passed to it
-_bio_env_reset_fn = jax.jit(partial(_bio_env_instance.reset))
+_bio_env_reset_fn = jax.jit(partial(bio_env_instance.reset))
 
 
 # --- CPG Setup ---
 cpg_instance = CPG(dt=_control_timestep)
 cpg_reset_fn = jax.jit(cpg_instance.reset)
 cpg_step_fn = jax.jit(cpg_instance.step)
-modulate_cpg_fn = jax.jit(partial(modulate_cpg, max_joint_limit=_max_joint_limit))
+modulate_cpg_fn = jax.jit(partial(modulate_cpg, max_joint_limit=max_joint_limit))
 map_cpg_outputs_fn = jax.jit(partial(map_cpg_outputs_to_actions,
                                        num_arms=NUM_ARMS,
                                        num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
@@ -90,7 +91,7 @@ def get_brittle_star_position(mjx_state: Any) -> jnp.ndarray:
     return mjx_state.observations["disk_position"]
 
 @jax.jit
-def _calculate_distance(mjx_state: Any, target_pos: jnp.ndarray) -> float:
+def calculate_distance(mjx_state: Any, target_pos: jnp.ndarray) -> float:
     current_position = get_brittle_star_position(mjx_state)
     return jnp.linalg.norm(current_position - target_pos)
 
@@ -101,7 +102,7 @@ def get_observation(mjx_state: Any, target_pos: jnp.ndarray) -> jnp.ndarray:
 
 @jax.jit
 def check_termination_conditions(mjx_state: Any, target_pos: jnp.ndarray) -> tuple[bool, bool]:
-    distance = _calculate_distance(mjx_state, target_pos)
+    distance = calculate_distance(mjx_state, target_pos)
     target_reached = distance < 0.1
     terminated = target_reached | mjx_state.terminated
     truncated = mjx_state.truncated
@@ -113,7 +114,7 @@ def check_termination_conditions(mjx_state: Any, target_pos: jnp.ndarray) -> tup
 def _functional_single_step(mjx_state: Any, cpg_state: Any) -> tuple[Any, Any]:
     new_cpg_state = cpg_step_fn(state=cpg_state)
     motor_actions = map_cpg_outputs_fn(cpg_state=new_cpg_state)
-    new_mjx_state = _bio_env_step_fn(state=mjx_state, action=motor_actions)
+    new_mjx_state = bio_env_step_fn(state=mjx_state, action=motor_actions)
     return new_mjx_state, new_cpg_state
 
 # Pass target_pos as regular arg now
@@ -124,7 +125,7 @@ def _inner_simulation_step(loop_carry: EnvState, _: Any, target_pos: jnp.ndarray
     new_mjx_state, new_cpg_state = _functional_single_step(current_mjx_state, current_cpg_state)
     steps = steps + 1
 
-    current_dist = _calculate_distance(new_mjx_state, target_pos)
+    current_dist = calculate_distance(new_mjx_state, target_pos)
     new_best_dist = jnp.minimum(best_dist, current_dist)
     made_progress = current_dist < best_dist
     new_last_prog_step = jax.lax.select(made_progress, steps, last_prog)
@@ -156,8 +157,8 @@ def init_state(key: jax.random.PRNGKey, target_pos: jnp.ndarray) -> EnvState:
     key, subkey1, subkey2 = jax.random.split(key, 3)
     cpg_state = cpg_reset_fn(rng=subkey1)
     # Pass target_pos XY to the underlying reset function
-    mjx_state = _bio_env_reset_fn(rng=subkey2, target_position=target_pos[:2])
-    initial_distance = _calculate_distance(mjx_state, target_pos)
+    mjx_state = _bio_env_reset_fn(rng=subkey2, target_position=target_pos[:3])
+    initial_distance = calculate_distance(mjx_state, target_pos)
 
     return EnvState(
         mjx_state=mjx_state,
@@ -188,7 +189,7 @@ def functional_env_step(initial_state: EnvState, cpg_params: jnp.ndarray, max_st
 
     final_loop_state, _ = jax.lax.scan(scan_body, start_loop_state, None, length=max_steps)
 
-    final_dist = _calculate_distance(final_loop_state.mjx_state, target_pos)
+    final_dist = calculate_distance(final_loop_state.mjx_state, target_pos)
     improvement = initial_state.previous_distance - final_dist
     target_reached_bonus = jax.lax.select(final_dist < 0.1, 10.0, 0.0)
     reward = improvement + target_reached_bonus
