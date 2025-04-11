@@ -1,239 +1,173 @@
-# functional_brittle_star_env.py
+from functools import partial
+
 import jax
 import jax.numpy as jnp
-import numpy as np
-from functools import partial
-from typing import NamedTuple, Dict, Any
-import time # Keep for example timing
-
-# Assume these imports work and the underlying objects/functions are JAX-compatible
 from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
-from biorobot.brittle_star.environment.directed_locomotion.shared import BrittleStarDirectedLocomotionEnvironmentConfiguration
-from biorobot.brittle_star.mjcf.arena.aquarium import MJCFAquariumArena, AquariumArenaConfiguration
-from biorobot.brittle_star.mjcf.morphology.morphology import MJCFBrittleStarMorphology
-from biorobot.brittle_star.mjcf.morphology.specification.default import default_brittle_star_morphology_specification
+
+# Required imports - script will fail if these modules are not found
+from config import (
+    NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
+    MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
+    CONTROL_TIMESTEP, DEFAULT_TARGET_POSITION, create_environment
+)
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
 
-# --- Configuration ---
-NUM_ARMS = 5
-NUM_SEGMENTS_PER_ARM = 3
-ARENA_SIZE = (2, 2)
-TARGET_POSITION_XY = jnp.array([1.25, 0.75])
-TARGET_POSITION = jnp.concatenate([TARGET_POSITION_XY, jnp.array([0.0])])
-MAX_SIM_STEPS = 150
-NO_PROGRESS_THRESHOLD = 20
-LOWER_BOUNDS = jnp.concatenate([jnp.full(10, -1.0), jnp.full(10, -1.0), jnp.array([1.0])])
-UPPER_BOUNDS = jnp.concatenate([jnp.full(10, 1.0), jnp.full(10, 1.0), jnp.array([5.0])])
-
-
-# --- Static Environment Configuration ---
-morphology_specification = default_brittle_star_morphology_specification(
-    num_arms=NUM_ARMS, num_segments_per_arm=NUM_SEGMENTS_PER_ARM, use_p_control=True, use_torque_control=False
-)
-arena_configuration = AquariumArenaConfiguration(
-    size=ARENA_SIZE, sand_ground_color=False, attach_target=True, wall_height=1.5, wall_thickness=0.1
-)
-environment_configuration = BrittleStarDirectedLocomotionEnvironmentConfiguration(
-    target_distance=1.2,
-    joint_randomization_noise_scale=0.0,
-    render_mode=None,
-    simulation_time=20,
-    num_physics_steps_per_control_step=10,
-    time_scale=2,
-)
-
-# --- Underlying BioRobot Env (Static Instance for Methods/Info) ---
-_bio_env_instance = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
-    morphology=MJCFBrittleStarMorphology(specification=morphology_specification),
-    arena=MJCFAquariumArena(configuration=arena_configuration),
-    configuration=environment_configuration,
-    backend="MJX"
-)
-_control_timestep = environment_configuration.control_timestep
-_max_joint_limit = UPPER_BOUNDS[0]
-# Get JITted step/reset functions - Pass target_pos as runtime arg now
-_bio_env_step_fn = jax.jit(_bio_env_instance.step)
-# Reset needs the target_position passed to it
-_bio_env_reset_fn = jax.jit(partial(_bio_env_instance.reset))
-
-
-# --- CPG Setup ---
-cpg_instance = CPG(dt=_control_timestep)
-cpg_reset_fn = jax.jit(cpg_instance.reset)
-cpg_step_fn = jax.jit(cpg_instance.step)
-modulate_cpg_fn = jax.jit(partial(modulate_cpg, max_joint_limit=_max_joint_limit))
-map_cpg_outputs_fn = jax.jit(partial(map_cpg_outputs_to_actions,
-                                       num_arms=NUM_ARMS,
-                                       num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
-                                       num_oscillators_per_arm=2))
-
-
-# --- State Definition ---
-class EnvState(NamedTuple):
-    mjx_state: Any
-    cpg_state: Any
-    key: jax.random.PRNGKey
-    steps_taken: int
-    previous_distance: float
-    best_distance: float
-    last_progress_step: int
-    terminated: bool
-    truncated: bool
-
-
-# --- Core JAX Helper Functions ---
-# No longer need partial(jit, static_argnames...) for target_pos
-
 @jax.jit
-def get_brittle_star_position(mjx_state: Any) -> jnp.ndarray:
-    return mjx_state.observations["disk_position"]
+def init_simulation_state_logic(rng, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG, target_position: jnp.ndarray):
+    """
+    Initializes the simulation state including environment and CPG states.
+    """
+    rng_env, rng_cpg = jax.random.split(rng)
+    initial_env_state = env.reset(rng=rng_env, target_position=target_position)
+    initial_cpg_state = cpg.reset(rng=rng_cpg)
 
-@jax.jit
-def _calculate_distance(mjx_state: Any, target_pos: jnp.ndarray) -> float:
-    current_position = get_brittle_star_position(mjx_state)
-    return jnp.linalg.norm(current_position - target_pos)
+    current_pos = initial_env_state.observations["disk_position"]
+    target_pos = jnp.concatenate([initial_env_state.info["xy_target_position"], jnp.array([0.0])])
+    initial_distance = jnp.linalg.norm(current_pos - target_pos)
 
-@jax.jit
-def get_observation(mjx_state: Any, target_pos: jnp.ndarray) -> jnp.ndarray:
-    current_position = get_brittle_star_position(mjx_state)
-    return jnp.concatenate([current_position, target_pos])
+    state = {
+        "env_state": initial_env_state,
+        "cpg_state": initial_cpg_state,
+        "rng": rng,
+        "initial_distance": initial_distance,
+        "best_distance": initial_distance,
+        "current_distance": initial_distance,
+        "steps_taken": jnp.array(0),
+        "last_progress_step": jnp.array(0),
+        "terminated": jnp.array(False),
+        "truncated": jnp.array(False),
+        "reward": jnp.array(0.0)
+    }
+    return state
 
-@jax.jit
-def check_termination_conditions(mjx_state: Any, target_pos: jnp.ndarray) -> tuple[bool, bool]:
-    distance = _calculate_distance(mjx_state, target_pos)
-    target_reached = distance < 0.1
-    terminated = target_reached | mjx_state.terminated
-    truncated = mjx_state.truncated
-    return terminated, truncated
-
-# --- Functional Simulation Step Logic ---
-
-@jax.jit
-def _functional_single_step(mjx_state: Any, cpg_state: Any) -> tuple[Any, Any]:
-    new_cpg_state = cpg_step_fn(state=cpg_state)
-    motor_actions = map_cpg_outputs_fn(cpg_state=new_cpg_state)
-    new_mjx_state = _bio_env_step_fn(state=mjx_state, action=motor_actions)
-    return new_mjx_state, new_cpg_state
-
-# Pass target_pos as regular arg now
-@partial(jax.jit, static_argnames=("no_progress_thresh",)) # Only no_progress_thresh is static
-def _inner_simulation_step(loop_carry: EnvState, _: Any, target_pos: jnp.ndarray, no_progress_thresh: int) -> tuple[EnvState, None]:
-    current_mjx_state, current_cpg_state, key, steps, prev_dist, best_dist, last_prog, term, trunc = loop_carry
-
-    new_mjx_state, new_cpg_state = _functional_single_step(current_mjx_state, current_cpg_state)
-    steps = steps + 1
-
-    current_dist = _calculate_distance(new_mjx_state, target_pos)
-    new_best_dist = jnp.minimum(best_dist, current_dist)
-    made_progress = current_dist < best_dist
-    new_last_prog_step = jax.lax.select(made_progress, steps, last_prog)
-
-    env_term, env_trunc = check_termination_conditions(new_mjx_state, target_pos)
-    no_progress = (steps - new_last_prog_step) > no_progress_thresh
-    new_term = term | env_term
-    new_trunc = trunc | env_trunc | no_progress
-
-    next_carry = EnvState(
-        mjx_state=new_mjx_state,
+# Jitting with static arguments for env and cpg instances.
+@partial(jax.jit, static_argnames=['env', 'cpg'])
+def simulation_single_step_logic(state, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG):
+    """
+    Executes a single step in the simulation using the provided env and cpg.
+    """
+    new_cpg_state = cpg.step(state=state["cpg_state"])
+    motor_actions = map_cpg_outputs_to_actions(
         cpg_state=new_cpg_state,
-        key=key,
-        steps_taken=steps,
-        previous_distance=prev_dist,
-        best_distance=new_best_dist,
-        last_progress_step=new_last_prog_step,
-        terminated=new_term,
-        truncated=new_trunc
+        num_arms=NUM_ARMS, # Assumes global config constants are appropriate
+        num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
+        num_oscillators_per_arm=NUM_OSCILLATORS_PER_ARM
     )
-    return next_carry, None
+    new_env_state = env.step(state=state["env_state"], action=motor_actions)
 
+    current_position = new_env_state.observations["disk_position"]
+    target_position = jnp.concatenate([new_env_state.info["xy_target_position"], jnp.array([0.0])])
+    current_distance = jnp.linalg.norm(current_position - target_position)
 
-# --- Main Environment Interface Functions ---
+    progress_made = current_distance < state["best_distance"]
+    current_step_index = state["steps_taken"] + 1
+    last_progress_step = jnp.where(progress_made, current_step_index, state["last_progress_step"])
+    best_distance = jnp.minimum(state["best_distance"], current_distance)
 
-# Pass target_pos as regular arg
-@jax.jit
-def init_state(key: jax.random.PRNGKey, target_pos: jnp.ndarray) -> EnvState:
-    key, subkey1, subkey2 = jax.random.split(key, 3)
-    cpg_state = cpg_reset_fn(rng=subkey1)
-    # Pass target_pos XY to the underlying reset function
-    mjx_state = _bio_env_reset_fn(rng=subkey2, target_position=target_pos[:2])
-    initial_distance = _calculate_distance(mjx_state, target_pos)
+    # Termination and truncation conditions
+    terminated = (current_distance < 0.1) | new_env_state.terminated
+    truncated = new_env_state.truncated | ((current_step_index - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
-    return EnvState(
-        mjx_state=mjx_state,
-        cpg_state=cpg_state,
-        key=key,
-        steps_taken=0,
-        previous_distance=initial_distance,
-        best_distance=initial_distance,
-        last_progress_step=0,
-        terminated=False,
-        truncated=False
+    new_state = state.copy()
+    new_state.update({
+        "env_state": new_env_state,
+        "cpg_state": new_cpg_state,
+        "steps_taken": current_step_index,
+        "best_distance": best_distance,
+        "current_distance": current_distance,
+        "last_progress_step": last_progress_step,
+        "terminated": terminated,
+        "truncated": truncated,
+    })
+    return new_state
+
+# Jitting with static arguments for env, cpg, and max_joint_limit.
+@partial(jax.jit, static_argnames=['env', 'cpg', 'max_joint_limit'])
+def run_episode_logic(initial_state, cpg_params: jnp.ndarray, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG, max_joint_limit: float):
+    """
+    Runs a full episode simulation loop, returning the total reward.
+    """
+    cpg_params = jnp.asarray(cpg_params)
+    # Adapt parameter slicing based on your actual CPG structure
+    num_cpg_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1 # Example: R, X per oscillator pair + 1 global omega
+    if len(cpg_params) != num_cpg_params:
+         raise ValueError(f"Expected {num_cpg_params} CPG parameters, got {len(cpg_params)}")
+
+    new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
+    new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
+    new_omega = cpg_params[-1]
+
+    modulated_cpg_state = modulate_cpg(
+        cpg_state=initial_state["cpg_state"],
+        new_R=new_R,
+        new_X=new_X,
+        new_omega=new_omega,
+        max_joint_limit=max_joint_limit
     )
 
-# Pass target_pos as regular arg, only max_steps and no_progress_thresh are static
-@partial(jax.jit, static_argnames=("max_steps", "no_progress_thresh"))
-def functional_env_step(initial_state: EnvState, cpg_params: jnp.ndarray, max_steps: int, target_pos: jnp.ndarray, no_progress_thresh: int) -> tuple[EnvState, float, jnp.ndarray]:
-    clipped_params = jnp.clip(cpg_params, LOWER_BOUNDS, UPPER_BOUNDS)
-    modulated_cpg_state = modulate_cpg_fn(
-        cpg_state=initial_state.cpg_state,
-        new_R=clipped_params[:10],
-        new_X=clipped_params[10:20],
-        new_omega=clipped_params[20]
-    )
-    start_loop_state = initial_state._replace(cpg_state=modulated_cpg_state)
+    loop_state = initial_state.copy()
+    loop_state["cpg_state"] = modulated_cpg_state
+    loop_state["distance_before_loop"] = initial_state["initial_distance"]
 
-    # Pass target_pos as a regular (non-static) argument to scan_body via partial
-    scan_body = partial(_inner_simulation_step, target_pos=target_pos, no_progress_thresh=no_progress_thresh)
+    # Define the step function for the loop body, passing static args
+    def body_step(current_loop_state):
+        return simulation_single_step_logic(current_loop_state, env, cpg)
 
-    final_loop_state, _ = jax.lax.scan(scan_body, start_loop_state, None, length=max_steps)
+    # Define the loop condition
+    def loop_cond(current_loop_state):
+        return (~current_loop_state["terminated"]
+                & ~current_loop_state["truncated"]
+                & (current_loop_state["steps_taken"] < MAX_STEPS_PER_EPISODE))
 
-    final_dist = _calculate_distance(final_loop_state.mjx_state, target_pos)
-    improvement = initial_state.previous_distance - final_dist
-    target_reached_bonus = jax.lax.select(final_dist < 0.1, 10.0, 0.0)
+    # Run the simulation loop
+    final_state = jax.lax.while_loop(loop_cond, body_step, loop_state)
+
+    # Calculate final reward
+    distance_after = final_state["current_distance"]
+    distance_before = final_state["distance_before_loop"]
+    improvement = distance_before - distance_after
+    target_reached_bonus = jnp.where(distance_after < 0.1, 10.0, 0.0) # Example bonus
     reward = improvement + target_reached_bonus
 
-    final_observation = get_observation(final_loop_state.mjx_state, target_pos)
-
-    return final_loop_state, reward, final_observation
+    return reward
 
 
-# --- Example Usage ---
-if __name__ == '__main__':
-    SEED = 42
-    key = jax.random.PRNGKey(SEED)
-    print("Initializing state...")
-    key, init_key = jax.random.split(key)
-    # Pass TARGET_POSITION as regular argument
-    state = init_state(init_key, TARGET_POSITION)
-    print(f"Initial distance: {state.previous_distance:.4f}")
+# --- Main Test Function ---
+if __name__ == "__main__":
+    print("Running basic test...")
+    key = jax.random.PRNGKey(42)
+    key_init, key_episode = jax.random.split(key)
 
-    key, param_key = jax.random.split(key)
-    mid_params = (LOWER_BOUNDS + UPPER_BOUNDS) / 2.0
-    example_params = mid_params + jax.random.normal(param_key, shape=mid_params.shape) * 0.2
+    # Create environment and CPG instance
+    env = create_environment()
+    cpg_instance = CPG(dt=CONTROL_TIMESTEP)
+    print("Environment and CPG created.")
 
-    print("\nRunning functional step...")
-    # Pass TARGET_POSITION as regular argument
-    final_state, reward, observation = functional_env_step(
-        state, example_params, MAX_SIM_STEPS, TARGET_POSITION, NO_PROGRESS_THRESHOLD
+    # Initialize state
+    target_pos = DEFAULT_TARGET_POSITION
+    initial_sim_state = init_simulation_state_logic(key_init, env, cpg_instance, target_pos)
+    print(f"Initial state created. Initial distance: {initial_sim_state['initial_distance']:.4f}")
+
+    # Define CPG parameters (adjust size/values based on your CPG)
+    num_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1
+    dummy_cpg_params = jnp.ones(num_params) * 0.5
+    dummy_cpg_params = dummy_cpg_params.at[-1].set(jnp.pi) # Set omega
+    print(f"Using {len(dummy_cpg_params)} dummy CPG parameters.")
+
+    # Get max joint limit from environment spec
+    max_joint_limit = env.morphology.specification.actuators[0].limits_config.pos[1]
+    print(f"Using max joint limit: {max_joint_limit:.4f}")
+
+    # Run episode
+    print("Running episode...")
+    final_reward = run_episode_logic(
+        initial_state=initial_sim_state,
+        cpg_params=dummy_cpg_params,
+        env=env,
+        cpg=cpg_instance,
+        max_joint_limit=max_joint_limit
     )
-    print(f"Final Reward: {reward:.4f}")
-    # print(f"Final Observation: {observation}")
-    # print(f"Terminated: {final_state.terminated}, Truncated: {final_state.truncated}")
 
-    # --- Conceptual VMAP Example (Optional) ---
-    # print("\nRunning VMAP example...")
-    # batch_size = 4
-    # key, *init_keys = jax.random.split(key, batch_size + 1)
-    # batch_init_keys = jnp.stack(init_keys)
-    # vmapped_init = jax.vmap(init_state, in_axes=(0, None)) # Pass target_pos as None (broadcast)
-    # batch_initial_states = vmapped_init(batch_init_keys, TARGET_POSITION)
-    # key, *param_keys = jax.random.split(key, batch_size + 1)
-    # batch_param_keys = jnp.stack(param_keys)
-    # def generate_params(k): return mid_params + jax.random.normal(k, shape=mid_params.shape) * 0.2
-    # batch_params = jax.vmap(generate_params)(batch_param_keys)
-    # vmapped_step = jax.vmap(functional_env_step, in_axes=(0, 0, None, None, None), static_broadcasted_argnums=(2, 4)) # Pass target_pos as None (broadcast)
-    # batch_final_states, batch_rewards, batch_obs = vmapped_step(batch_initial_states, batch_params, MAX_SIM_STEPS, TARGET_POSITION, NO_PROGRESS_THRESHOLD)
-    # print(f"Batch rewards shape: {batch_rewards.shape}")
-    # print(f"Example batch reward: {batch_rewards[0]:.4f}")
+    print(f"Episode finished. Final Reward: {final_reward:.4f}")
 

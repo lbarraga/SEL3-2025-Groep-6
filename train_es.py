@@ -1,72 +1,89 @@
 import time
 
-import cma
+import jax
+import jax.numpy as jnp
 import numpy as np
+from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
+from biorobot.brittle_star.mjcf.arena.aquarium import MJCFAquariumArena
+from biorobot.brittle_star.mjcf.morphology.morphology import MJCFBrittleStarMorphology
+from evosax import OpenES
+from tqdm import tqdm
 
-from brittlestar_gym_environment import BrittleStarEnv
+from config import (
+    SEED, morphology_spec, arena_config, env_config,
+    DEFAULT_TARGET_POSITION
+)
+from new_env import get_simulation_components
 
-SEED = 42
-MAX_GENERATIONS = 100
-INITIAL_SIGMA = 0.5
+POP_SIZE = 100
+NUM_GENERATIONS = 100
 
-print("Initializing environment...")
-env = BrittleStarEnv(seed=SEED)
-param_dim = env.action_space.shape[0]
-lower_bounds = env.action_space.low
-upper_bounds = env.action_space.high
-print(f"Parameter dimension: {param_dim}")
-print(f"Lower bounds: {lower_bounds}")
-print(f"Upper bounds: {upper_bounds}")
+PARAM_DIM = 21
+PARAM_LOW = np.concatenate([np.full(10, -1.0), np.full(10, -1.0), np.array([1.0])])
+PARAM_HIGH = np.concatenate([np.full(10, 1.0), np.full(10, 1.0), np.array([5.0])])
+PARAM_LOW_JAX = jnp.array(PARAM_LOW)
+PARAM_HIGH_JAX = jnp.array(PARAM_HIGH)
 
-def evaluate_cpg_params(params, env_instance):
-    params = np.clip(params, lower_bounds, upper_bounds)
-    _observation, _info = env_instance.reset(seed=SEED)
-    _observation, reward, terminated, truncated, info = env_instance.step(params)
-    fitness = -reward
-    return fitness
+jax_env = BrittleStarDirectedLocomotionEnvironment.from_morphology_and_arena(
+    morphology=MJCFBrittleStarMorphology(specification=morphology_spec),
+    arena=MJCFAquariumArena(configuration=arena_config),
+    configuration=env_config, backend="MJX"
+)
 
-initial_params = (lower_bounds + upper_bounds) / 2.0
-options = {
-    'bounds': [lower_bounds, upper_bounds],
-    'seed': SEED,
-    'maxiter': MAX_GENERATIONS,
-    'verbose': -3
-}
+init_sim_state_fn, run_episode_fn = get_simulation_components(jax_env)
+max_joint_limit = float(jax_env.action_space.high[0])
+target_position = DEFAULT_TARGET_POSITION
 
-print("Initializing CMA-ES...")
-es = cma.CMAEvolutionStrategy(initial_params, INITIAL_SIGMA, options)
-print(f"Population size: {es.popsize}")
+def evaluate_parameters(rng_key, params):
+    params_clipped = jnp.clip(params, PARAM_LOW_JAX, PARAM_HIGH_JAX)
+    initial_state = init_sim_state_fn(rng_key, target_position)
+    reward = run_episode_fn(initial_state, params_clipped, max_joint_limit)
+    return reward
 
-print(f"Starting optimization for {MAX_GENERATIONS} generations (single-threaded)...")
+evaluate_fn = jax.jit(jax.vmap(evaluate_parameters, in_axes=(0, 0)))
+
+strategy = OpenES(popsize=POP_SIZE, num_dims=PARAM_DIM, maximize=True)
+es_params = strategy.default_params
+
+rng = jax.random.PRNGKey(SEED)
+rng, rng_init = jax.random.split(rng)
+initial_mean = (PARAM_LOW_JAX + PARAM_HIGH_JAX) / 2.0
+es_state = strategy.initialize(rng_init, es_params, init_mean=initial_mean)
+
+print(f"Strategy initialized: OpenES. Population size: {POP_SIZE}, Parameter dim: {PARAM_DIM}")
+
+# Removed wandb initialization block
+
+print(f"Starting training for {NUM_GENERATIONS} generations...")
 start_time = time.time()
-generation = 0
+log_interval = 10 # Keep simple print logging interval
 
-while not es.stop():
-    generation += 1
-    params_population = es.ask()
+for generation in tqdm(range(NUM_GENERATIONS), desc="Generation"):
+    rng, rng_gen, rng_eval = jax.random.split(rng, 3)
+    x, es_state = strategy.ask(rng_gen, es_state, es_params)
+    eval_keys = jax.random.split(key=rng_eval, num=POP_SIZE)
+    fitness = evaluate_fn(eval_keys, x)
+    es_state = strategy.tell(x, fitness, es_state, es_params)
 
-    fitness_scores = []
-    for params in params_population:
-        score = evaluate_cpg_params(params, env)
-        fitness_scores.append(score)
+    # Simple print logging instead of wandb
+    if generation % log_interval == 0 or generation == NUM_GENERATIONS -1 :
+         best_fitness = es_state.best_fitness
+         print(f"Generation: {generation+1}/{NUM_GENERATIONS}, Best Fitness (Max Reward): {best_fitness:.4f}")
 
-    es.tell(params_population, fitness_scores)
-
-    print(f"Generation: {generation}/{MAX_GENERATIONS}, Best Fitness (-Reward): {es.best.f:.4f}")
 
 end_time = time.time()
+# Removed wandb.finish()
+
 print("\n" + "="*30)
 print("Optimization Finished!")
 print(f"Total time: {end_time - start_time:.2f} seconds")
-if es.result.fbest is not None:
-    print(f"Best fitness found (-Reward): {es.result.fbest:.6f}")
-    print(f"Best CPG parameters found:")
-    np.set_printoptions(precision=6, suppress=True)
-    print(es.result.xbest)
-    # np.save("best_cpg_params_es_minimal.npy", es.result.xbest)
-else:
-    print("Optimization did not produce a valid result (or was stopped early).")
 
-env.close()
-print("Environment closed.")
+best_params = es_state.best_member
+best_fitness = es_state.best_fitness
+
+print(f"Best fitness found (Max Reward): {best_fitness:.6f}")
+print(f"Best CPG parameters found (best individual):")
+np.set_printoptions(precision=6, suppress=True)
+print(np.array(best_params))
+
 print("Script finished.")
