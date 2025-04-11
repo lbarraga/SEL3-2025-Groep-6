@@ -1,11 +1,24 @@
 import jax
+import jax.numpy as jnp
+from flax import nnx
 
-from ES_Model import ESModel
+
+class ESModel(nnx.Module):
+    def __init__(self, din: int, dout: int, rngs: nnx.Rngs = nnx.Rngs(0)):
+        key = rngs.params()
+        self.w = nnx.Param(jax.random.uniform(key, (din, dout)))
+        self.b = nnx.Param(jnp.zeros((dout,)))
+        self.din, self.dout = din, dout
+
+    # def __call__(self, x):
+    #     x = self.dense1(x)
+    #     x = jax.nn.relu(x)
+    #     x = self.dense2(x)
+    #     return x
+
+
 from evosax.algorithms import Open_ES as ES
 from flax import nnx
-from jax.flatten_util import ravel_pytree
-import optax
-from jax import numpy as jnp
 
 inParams: int = 30
 outParams: int = 21
@@ -52,6 +65,8 @@ def step(carry, key):
 key = jax.random.PRNGKey(0)
 key, subkey = jax.random.split(key)
 state = es.init(subkey, state, params)
+
+problem_state = state
 
 fitness_log = []
 log_period = 32 # how often to print to stdout
