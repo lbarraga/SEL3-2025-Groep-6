@@ -5,12 +5,11 @@ from render import post_render, show_video, save_video
 
 rng = jax.random.PRNGKey(seed=0)
 env = bio_env_instance
-env_reset_fn = jax.jit(env.reset)
 
 def evaluate_parameters(rng: jax.random.PRNGKey,
                         parameters: jnp.ndarray) -> float:
     rng, env_rng = jax.random.split(key=rng, num=2)
-    env_state = env_reset_fn(env_rng)
+    env_state = bio_env_reset_fn(rng=env_rng, target_position=TARGET_POSITION)
 
     cpg = cpg_instance
     rng, cpg_rng = jax.random.split(key=rng, num=2)
@@ -48,7 +47,7 @@ def evaluate_parameters_visual(
         parameters: jnp.ndarray,
 ) -> float:
     rng, env_rng = jax.random.split(key=rng, num=2)
-    env_state = env_reset_fn(env_rng)
+    env_state = bio_env_reset_fn(rng=env_rng, target_position=TARGET_POSITION)
 
     cpg = cpg_instance
     rng, cpg_rng = jax.random.split(key=rng, num=2)
@@ -78,7 +77,7 @@ def evaluate_parameters_visual(
     fitness = calculate_distance(env_state, TARGET_POSITION)
     return fitness
 
-NUM_GENERATIONS = 100
+NUM_GENERATIONS = 5
 NUM_PARAMETERS = 36
 POP_SIZE = 100
 

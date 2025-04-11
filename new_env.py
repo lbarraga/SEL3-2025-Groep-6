@@ -56,7 +56,7 @@ max_joint_limit = UPPER_BOUNDS[0]
 # Get JITted step/reset functions - Pass target_pos as runtime arg now
 bio_env_step_fn = jax.jit(bio_env_instance.step)
 # Reset needs the target_position passed to it
-_bio_env_reset_fn = jax.jit(partial(bio_env_instance.reset))
+bio_env_reset_fn = jax.jit(partial(bio_env_instance.reset))
 
 
 # --- CPG Setup ---
@@ -157,7 +157,7 @@ def init_state(key: jax.random.PRNGKey, target_pos: jnp.ndarray) -> EnvState:
     key, subkey1, subkey2 = jax.random.split(key, 3)
     cpg_state = cpg_reset_fn(rng=subkey1)
     # Pass target_pos XY to the underlying reset function
-    mjx_state = _bio_env_reset_fn(rng=subkey2, target_position=target_pos[:3])
+    mjx_state = bio_env_reset_fn(rng=subkey2, target_position=target_pos[:3])
     initial_distance = calculate_distance(mjx_state, target_pos)
 
     return EnvState(
