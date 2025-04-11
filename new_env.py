@@ -1,133 +1,107 @@
 from functools import partial
+import typing
 
 import jax
 import jax.numpy as jnp
-from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
+from flax import struct
 
-# Required imports - script will fail if these modules are not found
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
-    CONTROL_TIMESTEP, DEFAULT_TARGET_POSITION, create_environment
+    CONTROL_TIMESTEP, DEFAULT_TARGET_POSITION, create_environment,
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
 
-@jax.jit
-def init_simulation_state_logic(rng, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG, target_position: jnp.ndarray):
-    """
-    Initializes the simulation state including environment and CPG states.
-    """
-    rng_env, rng_cpg = jax.random.split(rng)
-    initial_env_state = env.reset(rng=rng_env, target_position=target_position)
-    initial_cpg_state = cpg.reset(rng=rng_cpg)
+@struct.dataclass
+class SimulationState:
+    env_state: typing.Any  # Use actual Env State type if known
+    cpg_state: typing.Any  # Use actual CPG State type if known
+    initial_distance: jnp.ndarray
+    best_distance: jnp.ndarray
+    current_distance: jnp.ndarray
+    steps_taken: jnp.ndarray
+    last_progress_step: jnp.ndarray
+    terminated: jnp.ndarray  # Should be bool array
+    truncated: jnp.ndarray  # Should be bool array
+    reward: jnp.ndarray  # Keep for consistency, though calculated at end
 
-    current_pos = initial_env_state.observations["disk_position"]
-    target_pos = jnp.concatenate([initial_env_state.info["xy_target_position"], jnp.array([0.0])])
-    initial_distance = jnp.linalg.norm(current_pos - target_pos)
 
-    state = {
-        "env_state": initial_env_state,
-        "cpg_state": initial_cpg_state,
-        "rng": rng,
-        "initial_distance": initial_distance,
-        "best_distance": initial_distance,
-        "current_distance": initial_distance,
-        "steps_taken": jnp.array(0),
-        "last_progress_step": jnp.array(0),
-        "terminated": jnp.array(False),
-        "truncated": jnp.array(False),
-        "reward": jnp.array(0.0)
-    }
-    return state
+@partial(jax.jit, static_argnames=['step_fn', 'cpg'])
+def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> SimulationState:
+    new_cpg_state = cpg.step(state=state.cpg_state)
 
-# Jitting with static arguments for env and cpg instances.
-@partial(jax.jit, static_argnames=['env', 'cpg'])
-def simulation_single_step_logic(state, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG):
-    """
-    Executes a single step in the simulation using the provided env and cpg.
-    """
-    new_cpg_state = cpg.step(state=state["cpg_state"])
     motor_actions = map_cpg_outputs_to_actions(
         cpg_state=new_cpg_state,
-        num_arms=NUM_ARMS, # Assumes global config constants are appropriate
+        num_arms=NUM_ARMS,
         num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
         num_oscillators_per_arm=NUM_OSCILLATORS_PER_ARM
     )
-    new_env_state = env.step(state=state["env_state"], action=motor_actions)
+
+    new_env_state = step_fn(state=state.env_state, action=motor_actions)
 
     current_position = new_env_state.observations["disk_position"]
     target_position = jnp.concatenate([new_env_state.info["xy_target_position"], jnp.array([0.0])])
     current_distance = jnp.linalg.norm(current_position - target_position)
 
-    progress_made = current_distance < state["best_distance"]
-    current_step_index = state["steps_taken"] + 1
-    last_progress_step = jnp.where(progress_made, current_step_index, state["last_progress_step"])
-    best_distance = jnp.minimum(state["best_distance"], current_distance)
+    progress_made = current_distance < state.best_distance
+    current_step_index = state.steps_taken + 1
+    last_progress_step = jnp.where(progress_made, current_step_index, state.last_progress_step)
+    best_distance = jnp.minimum(state.best_distance, current_distance)
 
-    # Termination and truncation conditions
     terminated = (current_distance < 0.1) | new_env_state.terminated
     truncated = new_env_state.truncated | ((current_step_index - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
-    new_state = state.copy()
-    new_state.update({
-        "env_state": new_env_state,
-        "cpg_state": new_cpg_state,
-        "steps_taken": current_step_index,
-        "best_distance": best_distance,
-        "current_distance": current_distance,
-        "last_progress_step": last_progress_step,
-        "terminated": terminated,
-        "truncated": truncated,
-    })
+    new_state = state.replace(
+        env_state=new_env_state,
+        cpg_state=new_cpg_state,
+        steps_taken=current_step_index,
+        best_distance=best_distance,
+        current_distance=current_distance,
+        last_progress_step=last_progress_step,
+        terminated=terminated,
+        truncated=truncated,
+    )
     return new_state
 
-# Jitting with static arguments for env, cpg, and max_joint_limit.
-@partial(jax.jit, static_argnames=['env', 'cpg', 'max_joint_limit'])
-def run_episode_logic(initial_state, cpg_params: jnp.ndarray, env: BrittleStarDirectedLocomotionEnvironment, cpg: CPG, max_joint_limit: float):
-    """
-    Runs a full episode simulation loop, returning the total reward.
-    """
+
+@partial(jax.jit, static_argnames=['step_fn', 'cpg', 'max_joint_limit'])
+def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, step_fn, cpg: CPG,
+                      max_joint_limit: float) -> jnp.ndarray:
     cpg_params = jnp.asarray(cpg_params)
-    # Adapt parameter slicing based on your actual CPG structure
-    num_cpg_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1 # Example: R, X per oscillator pair + 1 global omega
+    num_cpg_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1  # Example
     if len(cpg_params) != num_cpg_params:
-         raise ValueError(f"Expected {num_cpg_params} CPG parameters, got {len(cpg_params)}")
+        # Consider validating parameter shapes outside JIT if possible
+        raise ValueError(f"Expected {num_cpg_params} CPG parameters, got {len(cpg_params)}")
 
     new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
     new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
     new_omega = cpg_params[-1]
 
     modulated_cpg_state = modulate_cpg(
-        cpg_state=initial_state["cpg_state"],
+        cpg_state=initial_state.cpg_state,
         new_R=new_R,
         new_X=new_X,
         new_omega=new_omega,
         max_joint_limit=max_joint_limit
     )
 
-    loop_state = initial_state.copy()
-    loop_state["cpg_state"] = modulated_cpg_state
-    loop_state["distance_before_loop"] = initial_state["initial_distance"]
+    loop_state = initial_state.replace(cpg_state=modulated_cpg_state)
+    distance_before_loop = initial_state.initial_distance  # Access directly
 
-    # Define the step function for the loop body, passing static args
-    def body_step(current_loop_state):
-        return simulation_single_step_logic(current_loop_state, env, cpg)
+    def body_step(current_loop_state: SimulationState) -> SimulationState:
+        return simulation_single_step_logic(current_loop_state, step_fn, cpg)
 
-    # Define the loop condition
-    def loop_cond(current_loop_state):
-        return (~current_loop_state["terminated"]
-                & ~current_loop_state["truncated"]
-                & (current_loop_state["steps_taken"] < MAX_STEPS_PER_EPISODE))
+    def loop_cond(current_loop_state: SimulationState) -> bool:
+        return (~current_loop_state.terminated
+                & ~current_loop_state.truncated
+                & (current_loop_state.steps_taken < MAX_STEPS_PER_EPISODE))
 
-    # Run the simulation loop
     final_state = jax.lax.while_loop(loop_cond, body_step, loop_state)
 
-    # Calculate final reward
-    distance_after = final_state["current_distance"]
-    distance_before = final_state["distance_before_loop"]
-    improvement = distance_before - distance_after
-    target_reached_bonus = jnp.where(distance_after < 0.1, 10.0, 0.0) # Example bonus
+    distance_after = final_state.current_distance
+    improvement = distance_before_loop - distance_after  # Use stored value
+    target_reached_bonus = jnp.where(distance_after < 0.1, 10.0, 0.0)  # Example bonus
     reward = improvement + target_reached_bonus
 
     return reward
@@ -137,37 +111,62 @@ def run_episode_logic(initial_state, cpg_params: jnp.ndarray, env: BrittleStarDi
 if __name__ == "__main__":
     print("Running basic test...")
     key = jax.random.PRNGKey(42)
-    key_init, key_episode = jax.random.split(key)
+    key_init_env, key_init_cpg, key_episode = jax.random.split(key, 3)
 
-    # Create environment and CPG instance
+    # --- Setup ---
     env = create_environment()
     cpg_instance = CPG(dt=CONTROL_TIMESTEP)
     print("Environment and CPG created.")
 
-    # Initialize state
-    target_pos = DEFAULT_TARGET_POSITION
-    initial_sim_state = init_simulation_state_logic(key_init, env, cpg_instance, target_pos)
-    print(f"Initial state created. Initial distance: {initial_sim_state['initial_distance']:.4f}")
+    jit_reset = jax.jit(env.reset)
+    jit_step = jax.jit(env.step)
+    print("JITted env.reset and env.step created.")
 
-    # Define CPG parameters (adjust size/values based on your CPG)
+    # --- Initialization ---
+    initial_env_state = jit_reset(rng=key_init_env, target_position=DEFAULT_TARGET_POSITION)
+    print("Environment reset.")
+
+    initial_cpg_state = cpg_instance.reset(rng=key_init_cpg)
+    print("CPG reset.")
+
+    current_pos = initial_env_state.observations["disk_position"]
+    target_pos_3d = jnp.concatenate([initial_env_state.info["xy_target_position"], jnp.array([0.0])])
+    initial_distance = jnp.linalg.norm(current_pos - target_pos_3d)
+    print(f"Initial distance calculated: {initial_distance:.4f}")
+
+    # Instantiate the SimulationState class instead of creating a dictionary
+    initial_sim_state = SimulationState(
+        env_state=initial_env_state,
+        cpg_state=initial_cpg_state,
+        initial_distance=initial_distance,
+        best_distance=initial_distance,
+        current_distance=initial_distance,
+        steps_taken=jnp.array(0, dtype=jnp.int32),  # Ensure appropriate dtype
+        last_progress_step=jnp.array(0, dtype=jnp.int32),
+        terminated=jnp.array(False),  # JAX bool array
+        truncated=jnp.array(False),  # JAX bool array
+        reward=jnp.array(0.0, dtype=jnp.float32)
+    )
+    print("Initial SimulationState created.")
+
+    # --- Episode Execution ---
     num_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1
     dummy_cpg_params = jnp.ones(num_params) * 0.5
-    dummy_cpg_params = dummy_cpg_params.at[-1].set(jnp.pi) # Set omega
+    dummy_cpg_params = dummy_cpg_params.at[-1].set(jnp.pi)  # Set omega
     print(f"Using {len(dummy_cpg_params)} dummy CPG parameters.")
 
-    # Get max joint limit from environment spec
-    max_joint_limit = env.morphology.specification.actuators[0].limits_config.pos[1]
-    print(f"Using max joint limit: {max_joint_limit:.4f}")
+    max_joint_limit = env.action_space.high[0] * 0.25
+    max_joint_limit = float(max_joint_limit)  # Ensure float for static arg if needed
+    print(f"Using max joint limit for CPG modulation: {max_joint_limit:.4f}")
 
-    # Run episode
     print("Running episode...")
+    # Pass the SimulationState instance
     final_reward = run_episode_logic(
         initial_state=initial_sim_state,
         cpg_params=dummy_cpg_params,
-        env=env,
+        step_fn=jit_step,
         cpg=cpg_instance,
         max_joint_limit=max_joint_limit
     )
 
     print(f"Episode finished. Final Reward: {final_reward:.4f}")
-
