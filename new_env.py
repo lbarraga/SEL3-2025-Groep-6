@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-# Import necessary config and components needed within create_evaluation_fn
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
@@ -25,7 +24,7 @@ class SimulationState:
     last_progress_step: jnp.ndarray
     terminated: jnp.ndarray
     truncated: jnp.ndarray
-    reward: jnp.ndarray
+    reward: jnp.ndarray # Note: This field in the state might become redundant
 
 
 def create_initial_simulation_state(env_state, cpg_state):
@@ -66,6 +65,9 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
     terminated = (current_distance < 0.1) | new_env_state.terminated
     truncated = new_env_state.truncated | ((current_step_index - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
+    # Update reward field in state just before returning if desired, or remove it
+    final_reward_calc = state.initial_distance - current_distance + jnp.where(current_distance < 0.1, 10.0, 0.0)
+
     new_state = state.replace(
         env_state=new_env_state,
         cpg_state=new_cpg_state,
@@ -75,13 +77,14 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
         last_progress_step=last_progress_step,
         terminated=terminated,
         truncated=truncated,
+        reward=final_reward_calc # Update reward in state
     )
     return new_state
 
 
 @partial(jax.jit, static_argnames=['step_fn', 'cpg', 'max_joint_limit'])
 def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, step_fn, cpg: CPG,
-                      max_joint_limit: float) -> jnp.ndarray:
+                      max_joint_limit: float) -> typing.Tuple[jnp.ndarray, SimulationState]: # Return type changed
     cpg_params = jnp.asarray(cpg_params)
     num_cpg_params = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2 + 1
 
@@ -115,7 +118,7 @@ def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, s
     target_reached_bonus = jnp.where(distance_after < 0.1, 10.0, 0.0)
     reward = improvement + target_reached_bonus
 
-    return reward
+    return reward, final_state
 
 
 @partial(jax.jit, static_argnames=(
@@ -126,12 +129,12 @@ def evaluate_single_solution(rng, params, jit_reset, cpg_reset_fn, assemble_fn, 
     initial_env_state = jit_reset(rng=rng_env, target_position=target_pos)
     initial_cpg_state = cpg_reset_fn(rng=rng_cpg)
     initial_sim_state = assemble_fn(initial_env_state, initial_cpg_state)
-    fitness = run_episode_fn(initial_sim_state, params)
-    return fitness
+
+    reward, final_state = run_episode_fn(initial_sim_state, params)
+    return reward, final_state
 
 
 def create_evaluation_fn():
-    # Create necessary instances and functions internally
     env = create_environment()
     cpg_instance = CPG(dt=CONTROL_TIMESTEP)
     jit_reset = jax.jit(env.reset)
@@ -140,7 +143,6 @@ def create_evaluation_fn():
     cpg_reset_fn = cpg_instance.reset
     target_pos = DEFAULT_TARGET_POSITION
 
-    # Create the partially applied run_episode function needed by the evaluator
     run_episode_partial = partial(
         run_episode_logic,
         step_fn=jit_step,
@@ -148,19 +150,17 @@ def create_evaluation_fn():
         max_joint_limit=max_joint_limit
     )
 
-    # Partially apply the arguments that are static across a batch evaluation
     evaluate_single_partial = partial(
         evaluate_single_solution,
         jit_reset=jit_reset,
         cpg_reset_fn=cpg_reset_fn,
         assemble_fn=create_initial_simulation_state,
-        run_episode_fn=run_episode_partial, # Use the locally created partial function
+        run_episode_fn=run_episode_partial,
         target_pos=target_pos
     )
 
-    # Create the final batched evaluation function using vmap and jit
+    # vmap will now map over the function returning (reward, final_state)
+    # The result will be a tuple: (array_of_rewards, pytree_of_states)
     evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_partial, in_axes=(0, 0)))
     return evaluate_batch_fn
 
-# Main Test Function remains commented out as it would need significant updates
-# to work with the new create_evaluation_fn structure
