@@ -11,7 +11,7 @@ from nn import CPGController
 from wandb_evosax_logger import WandbEvosaxLogger
 
 POPULATION_SIZE = 100
-NUM_GENERATIONS = 100
+NUM_GENERATIONS = 5
 SIGMA_INIT = 0.1
 SEED = 55
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
@@ -60,7 +60,8 @@ def generate_cpg_for_eval(rng_single, flat_model_params_single, model_obj, unrav
 
     model_params_single = unravel_fn_single(flat_model_params_single)
 
-    cpg_params = model_obj.infer(model_params_single, normalized_direction, fixed_omega_val)
+    generated_rx_params = model_obj.apply({'params': model_params_single}, normalized_direction)
+    cpg_params = jnp.concatenate([generated_rx_params, jnp.array([fixed_omega_val])])
 
     return cpg_params, target_pos
 
