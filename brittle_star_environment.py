@@ -8,7 +8,7 @@ from flax import struct
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
-    create_environment, DEFAULT_TARGET_POSITION, CONTROL_TIMESTEP
+    create_environment, CONTROL_TIMESTEP
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
@@ -24,13 +24,14 @@ class SimulationState:
     last_progress_step: jnp.ndarray
     terminated: jnp.ndarray
     truncated: jnp.ndarray
-    reward: jnp.ndarray # TODO weg
+    reward: jnp.ndarray # Note: Intermediate reward stored here
 
 
 def create_initial_simulation_state(env_state, cpg_state):
-    """Creates the initial state for the simulation episode."""
+    target_pos_xy = env_state.info["xy_target_position"]
+    target_pos_3d = jnp.concatenate([target_pos_xy, jnp.array([0.0])])
+
     current_pos = env_state.observations["disk_position"]
-    target_pos_3d = jnp.concatenate([env_state.info["xy_target_position"], jnp.array([0.0])])
     initial_distance = jnp.linalg.norm(current_pos - target_pos_3d)
     return SimulationState(
         env_state=env_state, cpg_state=cpg_state,
@@ -56,7 +57,9 @@ def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> S
     new_env_state = step_fn(state=state.env_state, action=motor_actions)
 
     current_position = new_env_state.observations["disk_position"]
-    target_position = jnp.concatenate([new_env_state.info["xy_target_position"], jnp.array([0.0])])
+    # Get target position from the current environment state info
+    target_pos_xy = new_env_state.info["xy_target_position"]
+    target_position = jnp.concatenate([target_pos_xy, jnp.array([0.0])])
     current_distance = jnp.linalg.norm(current_position - target_position)
 
     progress_made = current_distance < state.best_distance
@@ -116,30 +119,27 @@ def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, s
 
     distance_after = final_state.current_distance
     steps = final_state.steps_taken
-
     improvement = distance_before_loop - distance_after
-
-    target_reached_bonus_amount = 1.0
-    target_reached_bonus = jnp.where(distance_after < 0.2, target_reached_bonus_amount, 0.0)
-
+    target_reached_bonus_amount = 10.0
+    target_reached_bonus = jnp.where(distance_after < 0.1, target_reached_bonus_amount, 0.0)
     max_time_bonus = 5.0
-    time_bonus = max_time_bonus * (1.0 - (steps / MAX_STEPS_PER_EPISODE))
+    steps_clipped = jnp.minimum(steps, MAX_STEPS_PER_EPISODE)
+    time_bonus = max_time_bonus * (1.0 - (steps_clipped / MAX_STEPS_PER_EPISODE))
     time_bonus = jnp.where(distance_after < 0.1, time_bonus, 0.0)
-
     reward = improvement + target_reached_bonus + time_bonus
 
     return reward, final_state
 
 
-@partial(jax.jit, static_argnames=('jit_reset', 'cpg_reset_fn', 'assemble_fn', 'run_episode_fn'))
-def evaluate_single_solution(rng, params, jit_reset, cpg_reset_fn, assemble_fn, run_episode_fn, target_pos):
-    """Evaluates a single set of CPG parameters."""
+def evaluate_single_solution(rng, cpg_params, target_pos, jit_reset, cpg_reset_fn, assemble_fn, run_episode_fn):
     rng_env, rng_cpg = jax.random.split(rng)
+
     initial_env_state = jit_reset(rng=rng_env, target_position=target_pos)
     initial_cpg_state = cpg_reset_fn(rng=rng_cpg)
     initial_sim_state = assemble_fn(initial_env_state, initial_cpg_state)
 
-    reward, final_state = run_episode_fn(initial_sim_state, params)
+    reward, final_state = run_episode_fn(initial_sim_state, cpg_params)
+
     return reward, final_state
 
 
@@ -151,7 +151,6 @@ def create_evaluation_fn():
     jit_step = jax.jit(env.step)
     max_joint_limit = float(env.action_space.high[0])
     cpg_reset_fn = cpg_instance.reset
-    target_pos = DEFAULT_TARGET_POSITION
 
     run_episode_partial = partial(
         run_episode_logic,
@@ -165,9 +164,9 @@ def create_evaluation_fn():
         jit_reset=jit_reset,
         cpg_reset_fn=cpg_reset_fn,
         assemble_fn=create_initial_simulation_state,
-        run_episode_fn=run_episode_partial,
-        target_pos=target_pos
+        run_episode_fn=run_episode_partial
     )
 
-    evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_partial, in_axes=(0, 0)))
+    evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_partial, in_axes=(0, 0, 0)))
+
     return evaluate_batch_fn
