@@ -50,7 +50,6 @@ class WandbEvosaxLogger:
         filename: str,
         artifact_name: str,
         artifact_type: str = 'model',
-        metadata: typing.Optional[typing.Dict] = None
     ):
         param_bytes = flax.serialization.to_bytes(parameters)
         with open(filename, "wb") as f:
@@ -59,7 +58,6 @@ class WandbEvosaxLogger:
         artifact = wandb.Artifact(
             name=artifact_name,
             type=artifact_type,
-            metadata=metadata
         )
         artifact.add_file(filename)
         wandb.log_artifact(artifact)

@@ -1,10 +1,10 @@
-from functools import partial
 import typing
+from functools import partial
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 
+from SimulationState import SimulationState, create_initial_simulation_state
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
@@ -12,84 +12,107 @@ from config import (
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
 
+class EpisodeEvaluator:
+    """Encapsulates environment, CPG, and logic for evaluating episodes."""
 
-@struct.dataclass
-class SimulationState:
-    env_state: typing.Any
-    cpg_state: typing.Any
-    initial_distance: jnp.ndarray
-    best_distance: jnp.ndarray
-    current_distance: jnp.ndarray
-    steps_taken: jnp.ndarray
-    last_progress_step: jnp.ndarray
-    terminated: jnp.ndarray
-    truncated: jnp.ndarray
+    def __init__(self):
+        """Initializes the evaluator, environment, CPG, and JITted functions."""
+        self.env = create_environment()
+        self.cpg = CPG(dt=CONTROL_TIMESTEP)
+        self.max_joint_limit = float(self.env.action_space.high[0])
 
+        # Store JIT-compiled versions of env/cpg methods
+        self._jit_env_reset = jax.jit(self.env.reset)
+        self._jit_env_step = jax.jit(self.env.step)
+        self._jit_cpg_reset = jax.jit(self.cpg.reset)
+        self._jit_cpg_step = jax.jit(self.cpg.step) # Step is now also JITted here
 
-def create_initial_simulation_state(env_state, cpg_state):
-    target_pos_3d = jnp.concatenate([env_state.info["xy_target_position"], jnp.array([0.0])])
-    current_pos = env_state.observations["disk_position"]
-    initial_distance = jnp.linalg.norm(current_pos - target_pos_3d)
+    @partial(jax.jit, static_argnames=['self'])
+    def simulation_single_step_logic(self, state: SimulationState) -> SimulationState:
+        """Performs a single step of the simulation logic."""
+        new_cpg_state = self._jit_cpg_step(state=state.cpg_state)
 
-    return SimulationState(
-        env_state=env_state,
-        cpg_state=cpg_state,
-        initial_distance=initial_distance,
-        best_distance=initial_distance,
-        current_distance=initial_distance,
-        steps_taken=jnp.array(0, dtype=jnp.int32),
-        last_progress_step=jnp.array(0, dtype=jnp.int32),
-        terminated=jnp.array(False),
-        truncated=jnp.array(False),
-    )
+        motor_actions = map_cpg_outputs_to_actions(
+            cpg_state=new_cpg_state,
+            num_arms=NUM_ARMS,
+            num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
+            num_oscillators_per_arm=NUM_OSCILLATORS_PER_ARM
+        )
 
+        new_env_state = self._jit_env_step(state=state.env_state, action=motor_actions)
+        steps_taken = state.steps_taken + 1
 
-@partial(jax.jit, static_argnames=['step_fn', 'cpg'])
-def simulation_single_step_logic(state: SimulationState, step_fn, cpg: CPG) -> SimulationState:
-    """Performs a single step of the simulation logic."""
-    new_cpg_state = cpg.step(state=state.cpg_state)
+        current_position = new_env_state.observations["disk_position"]
+        target_position = jnp.concatenate([new_env_state.info["xy_target_position"], jnp.array([0.0])])
+        current_distance = jnp.linalg.norm(current_position - target_position)
 
-    motor_actions = map_cpg_outputs_to_actions(
-        cpg_state=new_cpg_state,
-        num_arms=NUM_ARMS,
-        num_segments_per_arm=NUM_SEGMENTS_PER_ARM,
-        num_oscillators_per_arm=NUM_OSCILLATORS_PER_ARM
-    )
+        progress_made = current_distance < state.best_distance
+        last_progress_step = jnp.where(progress_made, steps_taken, state.last_progress_step)
 
-    new_env_state = step_fn(state=state.env_state, action=motor_actions)
+        best_distance = jnp.minimum(state.best_distance, current_distance)
 
-    current_position = new_env_state.observations["disk_position"]
-    target_position = jnp.concatenate([new_env_state.info["xy_target_position"], jnp.array([0.0])])
-    current_distance = jnp.linalg.norm(current_position - target_position)
+        # Terminate if internal env terminates or if the distance to the target is small enough
+        terminated = (current_distance < CLOSE_ENOUGH_DISTANCE) | new_env_state.terminated
 
-    progress_made = current_distance < state.best_distance
-    current_step_index = state.steps_taken + 1
-    last_progress_step = jnp.where(progress_made, current_step_index, state.last_progress_step)
+        # Truncate if no progress has been made for a certain number of steps
+        truncated = new_env_state.truncated | ((steps_taken - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
-    best_distance = jnp.minimum(state.best_distance, current_distance)
-
-    # Terminate if internal env terminates or if the distance to the target is small enough
-    terminated = (current_distance < CLOSE_ENOUGH_DISTANCE) | new_env_state.terminated
-
-    # Truncate if no progress has been made for a certain number of steps
-    truncated = new_env_state.truncated | ((current_step_index - last_progress_step) > NO_PROGRESS_THRESHOLD)
-
-    new_state = state.replace(
-        env_state=new_env_state,
-        cpg_state=new_cpg_state,
-        steps_taken=current_step_index,
-        best_distance=best_distance,
-        current_distance=current_distance,
-        last_progress_step=last_progress_step,
-        terminated=terminated,
-        truncated=truncated,
-    )
-    return new_state
+        new_state = state.replace(
+            env_state=new_env_state,
+            cpg_state=new_cpg_state,
+            steps_taken=steps_taken,
+            best_distance=best_distance,
+            current_distance=current_distance,
+            last_progress_step=last_progress_step,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        return new_state
 
 
-@jax.jit
-def calculate_final_reward(initial_distance: jnp.ndarray, final_state: SimulationState) -> jnp.ndarray:
+    @partial(jax.jit, static_argnames=['self'])
+    def run_episode_logic(self, rng: jnp.ndarray, cpg_params: jnp.ndarray, target_pos: jnp.ndarray) -> typing.Tuple[jnp.ndarray, SimulationState]:
+        """Runs a full episode simulation and calculates the final reward."""
+
+        rng_env, rng_cpg = jax.random.split(rng)
+        initial_env_state = self._jit_env_reset(rng=rng_env, target_position=target_pos)
+        initial_cpg_state = self._jit_cpg_reset(rng=rng_cpg)
+
+        initial_state = create_initial_simulation_state(initial_env_state, initial_cpg_state)
+
+        cpg_params = jnp.asarray(cpg_params)
+
+        new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
+        new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
+        new_omega = cpg_params[-1]
+
+        modulated_cpg_state = modulate_cpg(
+            cpg_state=initial_state.cpg_state,
+            new_R=new_R,
+            new_X=new_X,
+            new_omega=new_omega,
+            max_joint_limit=self.max_joint_limit
+        )
+
+        loop_state = initial_state.replace(cpg_state=modulated_cpg_state)
+
+        def body_step(current_loop_state: SimulationState) -> SimulationState:
+            return self.simulation_single_step_logic(current_loop_state)
+
+        def loop_cond(current_loop_state: SimulationState) -> bool:
+            return (~current_loop_state.terminated
+                    & ~current_loop_state.truncated
+                    & (current_loop_state.steps_taken < MAX_STEPS_PER_EPISODE))
+
+        final_state = jax.lax.while_loop(loop_cond, body_step, loop_state)
+        reward = calculate_final_reward(initial_state, final_state)
+
+        return reward, final_state
+
+
+def calculate_final_reward(initial_state: SimulationState, final_state: SimulationState) -> jnp.ndarray:
     """Calculates the final reward for an episode based on performance."""
+    initial_distance = initial_state.current_distance
     current_distance = final_state.current_distance
     steps = final_state.steps_taken
 
@@ -107,77 +130,18 @@ def calculate_final_reward(initial_distance: jnp.ndarray, final_state: Simulatio
 
     return improvement + target_reached_bonus + time_bonus
 
+EvaluationFn = typing.Callable[
+    [jax.Array, jax.Array, jax.Array], # input: rng_batch, cpg_params, target_pos
+    typing.Tuple[jax.Array, jax.Array] # output: fitness, final_states
+]
 
-@partial(jax.jit, static_argnames=['step_fn', 'cpg', 'max_joint_limit'])
-def run_episode_logic(initial_state: SimulationState, cpg_params: jnp.ndarray, step_fn, cpg: CPG,
-                      max_joint_limit: float) -> typing.Tuple[jnp.ndarray, SimulationState]:
-    """Runs a full episode simulation and calculates the final reward."""
-    cpg_params = jnp.asarray(cpg_params)
-
-    new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
-    new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
-    new_omega = cpg_params[-1]
-
-    modulated_cpg_state = modulate_cpg(
-        cpg_state=initial_state.cpg_state,
-        new_R=new_R,
-        new_X=new_X,
-        new_omega=new_omega,
-        max_joint_limit=max_joint_limit
-    )
-
-    loop_state = initial_state.replace(cpg_state=modulated_cpg_state)
-
-    def body_step(current_loop_state: SimulationState) -> SimulationState:
-        return simulation_single_step_logic(current_loop_state, step_fn, cpg)
-
-    def loop_cond(current_loop_state: SimulationState) -> bool:
-        return (~current_loop_state.terminated
-                & ~current_loop_state.truncated
-                & (current_loop_state.steps_taken < MAX_STEPS_PER_EPISODE))
-
-    final_state = jax.lax.while_loop(loop_cond, body_step, loop_state)
-    reward = calculate_final_reward(initial_state.initial_distance, final_state)
-
-    return reward, final_state
-
-
-def evaluate_single_solution(rng, cpg_params, target_pos, jit_reset, cpg_reset_fn, assemble_fn, run_episode_fn):
-    rng_env, rng_cpg = jax.random.split(rng)
-
-    initial_env_state = jit_reset(rng=rng_env, target_position=target_pos)
-    initial_cpg_state = cpg_reset_fn(rng=rng_cpg)
-    initial_sim_state = assemble_fn(initial_env_state, initial_cpg_state)
-
-    reward, final_state = run_episode_fn(initial_sim_state, cpg_params)
-
-    return reward, final_state
-
-
-def create_evaluation_fn():
-    """Creates the batched evaluation function for use with ES."""
-    env = create_environment()
-    cpg_instance = CPG(dt=CONTROL_TIMESTEP)
-    jit_reset = jax.jit(env.reset)
-    jit_step = jax.jit(env.step)
-    max_joint_limit = float(env.action_space.high[0])
-    cpg_reset_fn = cpg_instance.reset
-
-    run_episode_partial = partial(
-        run_episode_logic,
-        step_fn=jit_step,
-        cpg=cpg_instance,
-        max_joint_limit=max_joint_limit
-    )
-
-    evaluate_single_partial = partial(
-        evaluate_single_solution,
-        jit_reset=jit_reset,
-        cpg_reset_fn=cpg_reset_fn,
-        assemble_fn=create_initial_simulation_state,
-        run_episode_fn=run_episode_partial
-    )
-
-    evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_partial, in_axes=(0, 0, 0)))
-
+def create_evaluation_fn() -> EvaluationFn:
+    """
+    Creates the JIT-compiled, vmapped evaluation function using the Evaluator class.
+    This non-vmapped function takes a random key, CPG parameters, and target position,
+    and returns the fitness and final states.
+    """
+    evaluator = EpisodeEvaluator()
+    # JIT + Vmap the method for batch evaluation
+    evaluate_batch_fn = jax.jit(jax.vmap(evaluator.run_episode_logic, in_axes=(0, 0, 0)))
     return evaluate_batch_fn
