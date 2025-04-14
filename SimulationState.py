@@ -15,7 +15,6 @@ class SimulationState:
     last_progress_step: jnp.ndarray
     terminated: jnp.ndarray
     truncated: jnp.ndarray
-    reward: jnp.ndarray # Note: Intermediate reward stored here
 
 
 def create_initial_simulation_state(env_state, cpg_state):
@@ -34,5 +33,4 @@ def create_initial_simulation_state(env_state, cpg_state):
         last_progress_step=jnp.array(0, dtype=jnp.int32),
         terminated=jnp.array(False),
         truncated=jnp.array(False),
-        reward=jnp.array(0.0, dtype=jnp.float32)
     )
