@@ -15,7 +15,7 @@ NUM_GENERATIONS = 500
 SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
 FIXED_OMEGA = 4.5
-TARGET_SAMPLING_RADIUS = 1.8
+TARGET_SAMPLING_RADIUS = 1
 
 def sample_random_target_pos(rng_single):
     """Samples a random target position on the circle perimeter."""
