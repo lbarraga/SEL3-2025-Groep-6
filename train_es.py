@@ -12,7 +12,7 @@ from wandb_evosax_logger import WandbEvosaxLogger
 
 POPULATION_SIZE = 300
 NUM_GENERATIONS = 2000
-SIGMA_INIT = 0.1
+SIGMA_INIT = 0.2
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
 FIXED_OMEGA = 4.5
 TARGET_SAMPLING_RADIUS = 1
