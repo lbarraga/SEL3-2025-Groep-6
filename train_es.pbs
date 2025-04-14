@@ -11,7 +11,7 @@
 ml poetry/1.7.1-GCCcore-12.3.0 # load poetry and python 3.11
 
 cd "$VSC_DATA"/Bio-Robot-CPG/
-git checkout es-train-nn
+git checkout hpc_script
 
 rm -rf venv
 rm -rf "$VSC_DATA"/poetry
@@ -24,4 +24,4 @@ poetry config cache-dir "$VSC_DATA"/poetry
 poetry install --no-root
 
 export WANDB_API_KEY="<api_key_here>"
-python train_es_nn.py
+python train_es.py
