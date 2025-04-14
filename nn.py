@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 class CPGController(nn.Module):
     num_outputs: int
-    hidden_dim: int = 32
+    hidden_dim: int = 16
 
     @nn.compact
     def __call__(self, norm_direction: jnp.ndarray) -> jnp.ndarray:

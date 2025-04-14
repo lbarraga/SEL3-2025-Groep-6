@@ -15,9 +15,9 @@ from nn import CPGController, load_model_params
 
 SEED = 42
 FIXED_OMEGA = 4.5
-MODEL_FILENAME = "final_model_gen100.msgpack" # Specify model file path here
-TARGET_X = 2 # Specify target X here
-TARGET_Y = 2 # Specify target Y here
+MODEL_FILENAME = "final_model_gen4000.msgpack" # Specify model file path here
+TARGET_X = 1 # Specify target X here
+TARGET_Y = -1 # Specify target Y here
 
 env = create_environment()
 cpg = CPG(dt=CONTROL_TIMESTEP)

@@ -11,6 +11,11 @@ SEED = 42
 NUM_ARMS = 5
 NUM_SEGMENTS_PER_ARM = 3
 NUM_OSCILLATORS_PER_ARM = 2 # Defined by CPG structure assumption
+
+CLOSE_ENOUGH_DISTANCE = 0.2 # Distance to target position to consider it reached
+TARGET_REACHED_BONUS = 1.0
+MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
+
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
 NO_PROGRESS_THRESHOLD = 20 # Steps without improvement before truncating
 
