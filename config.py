@@ -17,10 +17,12 @@ TARGET_REACHED_BONUS = 1.0
 MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
 
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
-NO_PROGRESS_THRESHOLD = 20 # Steps without improvement before truncating
+NO_PROGRESS_THRESHOLD = 40 # Steps without improvement before truncating
 
 DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])
 TARGET_SAMPLING_RADIUS = 1
+
+FIXED_OMEGA = 4.5
 
 morphology_spec = default_brittle_star_morphology_specification(
     num_arms=NUM_ARMS, num_segments_per_arm=NUM_SEGMENTS_PER_ARM,

@@ -13,7 +13,8 @@ from nn import CPGController
 from util import generate_cpg_for_eval, print_optuna_results
 
 # reduced number of generations for optuna
-NUM_GENERATIONS = 100
+NUM_GENERATIONS = 500
+POPULATION_SIZE = 200
 
 master_key = jax.random.PRNGKey(SEED)
 
@@ -22,16 +23,14 @@ num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
 dummy_input = jnp.zeros((1, 2))
 
 evaluate_batch_fn = create_evaluation_fn()
-generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None, None))
+generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
 def objective(trial):
     # Initialize the model parameters
-    sigma_init = trial.suggest_categorical("sigma_init", [0.05, 0.1, 0.15, 0.2, 0.25])     # exploration vs exploitation
-    population_size = trial.suggest_categorical("population_size", [100, 200, 300, 400])   # population size
-    fixed_omega = trial.suggest_categorical("fixed_omega", [4.0, 4.5, 5.0])                # frequency of oscillators
-    hidden_dim = trial.suggest_categorical("hidden_dim", [8, 16, 32, 64])                  # hidden dimension of the nn
+    sigma_init = trial.suggest_categorical("sigma_init", [0.1, 0.15, 0.2, 0.25])  # exploration vs exploitation
+    hidden_dim = trial.suggest_categorical("hidden_dim", [16, 32, 64])            # hidden dimension of the nn
 
-    print(f"Running generation {trial.number} with sigma_init={sigma_init}, population_size={population_size}, fixed_omega={fixed_omega}")
+    print(f"Running generation {trial.number} with sigma_init={sigma_init}")
 
     # Initialize the model
     model = CPGController(num_outputs=num_cpg_params_to_generate, hidden_dim=hidden_dim)
@@ -42,23 +41,21 @@ def objective(trial):
     flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
     num_model_params = flat_initial_model_params.shape[0]
 
-    strategy = OpenES(popsize=population_size, num_dims=num_model_params, sigma_init=sigma_init, maximize=True)
+    strategy = OpenES(popsize=POPULATION_SIZE, num_dims=num_model_params, sigma_init=sigma_init, maximize=True)
     es_params = strategy.default_params
     es_state = strategy.initialize(rng, es_params, init_mean=flat_initial_model_params)
 
-    fitness = jnp.zeros(population_size)
+    fitness = jnp.zeros(POPULATION_SIZE)
     for generation in range(NUM_GENERATIONS):
         print(f"Generation {generation}")
         rng, rng_ask, rng_gen, rng_eval = jax.random.split(rng, 4)
 
         flat_model_params, es_state = strategy.ask(rng_ask, es_state, es_params)
 
-        rngs = jax.random.split(rng_gen, population_size)
-        cpg_params_pop, target_pos_pop = generate_batch_cpg_for_eval(
-            rngs, flat_model_params, model, unravel_fn, fixed_omega
-        )
+        rngs = jax.random.split(rng_gen, POPULATION_SIZE)
+        cpg_params_pop, target_pos_pop = generate_batch_cpg_for_eval(rngs, flat_model_params, model, unravel_fn)
 
-        rng_eval_batch = jax.random.split(rng_eval, population_size)
+        rng_eval_batch = jax.random.split(rng_eval, POPULATION_SIZE)
         fitness, final_states = evaluate_batch_fn(rng_eval_batch, cpg_params_pop, target_pos_pop)
 
         es_state = strategy.tell(flat_model_params, fitness, es_state, es_params)
@@ -75,7 +72,7 @@ def get_study(study_name: str):
             direction="maximize"
         )
 
-def run_optuna(n_trials: int = 100):
+def run_optuna(n_trials: int = 10):
     # Initialize the study
     study_name = "evosax_brittle_star_nn.pkl"
     study = get_study(study_name)
@@ -99,5 +96,5 @@ def run_optuna(n_trials: int = 100):
 
 
 if __name__ == "__main__":
-    run_optuna(n_trials=240)
+    run_optuna(n_trials=12)
     print_optuna_results("evosax_brittle_star_nn.pkl")

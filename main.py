@@ -7,13 +7,12 @@ from config import (
     create_environment,
     CONTROL_TIMESTEP,
     NUM_ARMS,
-    NUM_OSCILLATORS_PER_ARM, SEED
+    NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA
 )
 from cpg import CPG, modulate_cpg
 from render import show_video, post_render
 from nn import CPGController, load_model_params
 
-FIXED_OMEGA = 4.5
 MODEL_FILENAME = "final_model_gen4000.msgpack" # Specify model file path here
 TARGET_X = 1 # Specify target X here
 TARGET_Y = -1 # Specify target Y here

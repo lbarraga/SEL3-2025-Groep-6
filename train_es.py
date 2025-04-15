@@ -6,7 +6,7 @@ from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
 from brittle_star_environment import create_evaluation_fn
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, TARGET_SAMPLING_RADIUS
+from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, TARGET_SAMPLING_RADIUS, FIXED_OMEGA
 from nn import CPGController
 from util import generate_cpg_for_eval
 from wandb_evosax_logger import WandbEvosaxLogger
@@ -15,7 +15,6 @@ POPULATION_SIZE = 100
 NUM_GENERATIONS = 500
 SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
-FIXED_OMEGA = 4.5
 
 master_key = jax.random.PRNGKey(SEED)
 rng, model_init_rng = jax.random.split(master_key)
@@ -49,7 +48,7 @@ es_state = strategy.initialize(rng, es_params, init_mean=flat_initial_model_para
 
 evaluate_batch_fn = create_evaluation_fn()
 
-generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None, None))
+generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
 for generation in range(NUM_GENERATIONS):
     loop_start_time = time.time()
@@ -58,9 +57,7 @@ for generation in range(NUM_GENERATIONS):
     flat_model_params, es_state = strategy.ask(rng_ask, es_state, es_params)
 
     rngs = jax.random.split(rng_gen, POPULATION_SIZE)
-    cpg_params_pop, target_pos_pop = generate_batch_cpg_for_eval(
-        rngs, flat_model_params, model, unravel_fn, FIXED_OMEGA
-    )
+    cpg_params_pop, target_pos_pop = generate_batch_cpg_for_eval(rngs, flat_model_params, model, unravel_fn)
 
     rng_eval_batch = jax.random.split(rng_eval, POPULATION_SIZE)
     fitness, final_states = evaluate_batch_fn(rng_eval_batch, cpg_params_pop, target_pos_pop)
