@@ -29,11 +29,12 @@ def objective(trial):
     sigma_init = trial.suggest_categorical("sigma_init", [0.05, 0.1, 0.15, 0.2, 0.25])     # exploration vs exploitation
     population_size = trial.suggest_categorical("population_size", [100, 200, 300, 400])   # population size
     fixed_omega = trial.suggest_categorical("fixed_omega", [4.0, 4.5, 5.0])                # frequency of oscillators
+    hidden_dim = trial.suggest_categorical("hidden_dim", [8, 16, 32, 64])                  # hidden dimension of the nn
 
     print(f"Running generation {trial.number} with sigma_init={sigma_init}, population_size={population_size}, fixed_omega={fixed_omega}")
 
     # Initialize the model
-    model = CPGController(num_outputs=num_cpg_params_to_generate)
+    model = CPGController(num_outputs=num_cpg_params_to_generate, hidden_dim=hidden_dim)
 
     rng, model_init_rng = jax.random.split(master_key)
 
