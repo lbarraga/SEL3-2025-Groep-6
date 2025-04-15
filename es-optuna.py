@@ -13,7 +13,7 @@ from nn import CPGController
 from util import generate_cpg_for_eval, print_optuna_results
 
 # reduced number of generations for optuna
-NUM_GENERATIONS = 2
+NUM_GENERATIONS = 100
 
 master_key = jax.random.PRNGKey(SEED)
 
@@ -99,5 +99,5 @@ def run_optuna(n_trials: int = 100):
 
 
 if __name__ == "__main__":
-    run_optuna(n_trials=2)
+    run_optuna(n_trials=240)
     print_optuna_results("evosax_brittle_star_nn.pkl")
