@@ -10,9 +10,9 @@ from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED
 from nn import CPGController
 from wandb_evosax_logger import WandbEvosaxLogger
 
-POPULATION_SIZE = 300
-NUM_GENERATIONS = 2000
-SIGMA_INIT = 0.2
+POPULATION_SIZE = 100
+NUM_GENERATIONS = 500
+SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
 FIXED_OMEGA = 4.5
 TARGET_SAMPLING_RADIUS = 1
