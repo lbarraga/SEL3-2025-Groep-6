@@ -1,5 +1,5 @@
-
 import pickle
+import time
 
 import jax
 import jax.numpy as jnp
@@ -8,13 +8,16 @@ from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
 from brittle_star_environment import create_evaluation_fn
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED
+from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
 from nn import CPGController
 from util import generate_cpg_for_eval, print_optuna_results
+from wandb_evosax_logger import WandbEvosaxLogger
 
 # reduced number of generations for optuna
 NUM_GENERATIONS = 500
 POPULATION_SIZE = 200
+
+WANDB_PROJECT_NAME = "evosax_brittle_star_nn_optuna"
 
 master_key = jax.random.PRNGKey(SEED)
 
@@ -41,13 +44,27 @@ def objective(trial):
     flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
     num_model_params = flat_initial_model_params.shape[0]
 
+    logger = WandbEvosaxLogger(
+        project_name=WANDB_PROJECT_NAME,
+        config={
+            "population_size": POPULATION_SIZE,
+            "num_generations": NUM_GENERATIONS,
+            "sigma_init": sigma_init,
+            "seed": SEED,
+            "num_model_params": num_model_params,
+            "fixed_omega": FIXED_OMEGA,
+            "target_sampling_region": f"Circle perimeter radius {TARGET_SAMPLING_RADIUS}",
+            "nn_hidden_dim": hidden_dim,
+        }
+    )
+
     strategy = OpenES(popsize=POPULATION_SIZE, num_dims=num_model_params, sigma_init=sigma_init, maximize=True)
     es_params = strategy.default_params
     es_state = strategy.initialize(rng, es_params, init_mean=flat_initial_model_params)
 
     fitness = jnp.zeros(POPULATION_SIZE)
     for generation in range(NUM_GENERATIONS):
-        print(f"Generation {generation}")
+        loop_start_time = time.time()
         rng, rng_ask, rng_gen, rng_eval = jax.random.split(rng, 4)
 
         flat_model_params, es_state = strategy.ask(rng_ask, es_state, es_params)
@@ -59,6 +76,18 @@ def objective(trial):
         fitness, final_states = evaluate_batch_fn(rng_eval_batch, cpg_params_pop, target_pos_pop)
 
         es_state = strategy.tell(flat_model_params, fitness, es_state, es_params)
+        gen_time = time.time() - loop_start_time
+
+        logger.log_generation(
+            generation=generation + 1,
+            gen_time=gen_time,
+            es_state=es_state,
+            fitness=fitness,
+            final_states=final_states
+        )
+
+    logger.log_summary(es_state)
+    logger.finish()
 
     return jnp.mean(fitness).item()
 
