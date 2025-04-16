@@ -29,19 +29,21 @@ evaluate_batch_fn = create_evaluation_fn()
 generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
 search_space = {
-    "sigma_init": [0.1, 0.15, 0.2, 0.25],        # exploration vs exploitation
-    "hidden_dim": [16, 32, 64],                  # hidden dimension of the nn
+    "sigma_init": [0.1, 0.15, 0.2, 0.25],   # exploration vs exploitation
+    "hidden_dim1": [16, 32],                # first hidden dimension of the nn
+    "hidden_dim2": [32, 64],                # second hidden dimension of the nn
 }
 
 def objective(trial):
     # Initialize the model parameters
     sigma_init = trial.suggest_categorical("sigma_init", search_space["sigma_init"])
-    hidden_dim = trial.suggest_categorical("hidden_dim", search_space["hidden_dim"])
+    hidden_dim1 = trial.suggest_categorical("hidden_dim1", search_space["hidden_dim1"])
+    hidden_dim2 = trial.suggest_categorical("hidden_dim2", search_space["hidden_dim2"])
 
-    print(f"Running generation {trial.number} with sigma_init={sigma_init} and hidden_dim={hidden_dim}")
+    print(f"Running generation {trial.number} with sigma_init={sigma_init} and hidden_dims={hidden_dim1, hidden_dim2}")
 
     # Initialize the model
-    model = CPGController(num_outputs=num_cpg_params_to_generate, hidden_dim=hidden_dim)
+    model = CPGController(num_outputs=num_cpg_params_to_generate, hidden_dim1=hidden_dim1, hidden_dim2=hidden_dim2)
 
     rng, model_init_rng = jax.random.split(master_key)
 
@@ -59,7 +61,8 @@ def objective(trial):
             "num_model_params": num_model_params,
             "fixed_omega": FIXED_OMEGA,
             "target_sampling_region": f"Circle perimeter radius {TARGET_SAMPLING_RADIUS}",
-            "nn_hidden_dim": hidden_dim,
+            "nn_hidden_dim1": hidden_dim1,
+            "nn_hidden_dim2": hidden_dim2,
         }
     )
 
@@ -132,5 +135,5 @@ def run_optuna(n_trials: int = 10):
 
 
 if __name__ == "__main__":
-    run_optuna(n_trials=12)
+    run_optuna(n_trials=16)
     print_optuna_results("evosax_brittle_star_nn.pkl")
