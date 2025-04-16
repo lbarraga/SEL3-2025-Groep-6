@@ -14,7 +14,7 @@ from util import generate_cpg_for_eval, print_optuna_results
 from wandb_evosax_logger import WandbEvosaxLogger
 
 # reduced number of generations for optuna
-NUM_GENERATIONS = 1
+NUM_GENERATIONS = 500
 POPULATION_SIZE = 200
 
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn_optuna2"
