@@ -14,10 +14,10 @@ from util import generate_cpg_for_eval, print_optuna_results
 from wandb_evosax_logger import WandbEvosaxLogger
 
 # reduced number of generations for optuna
-NUM_GENERATIONS = 500
+NUM_GENERATIONS = 1
 POPULATION_SIZE = 200
 
-WANDB_PROJECT_NAME = "evosax_brittle_star_nn_optuna"
+WANDB_PROJECT_NAME = "evosax_brittle_star_nn_optuna2"
 
 master_key = jax.random.PRNGKey(SEED)
 
@@ -28,12 +28,17 @@ dummy_input = jnp.zeros((1, 2))
 evaluate_batch_fn = create_evaluation_fn()
 generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
+search_space = {
+    "sigma_init": [0.1, 0.15, 0.2, 0.25],        # exploration vs exploitation
+    "hidden_dim": [16, 32, 64],                  # hidden dimension of the nn
+}
+
 def objective(trial):
     # Initialize the model parameters
-    sigma_init = trial.suggest_categorical("sigma_init", [0.1, 0.15, 0.2, 0.25])  # exploration vs exploitation
-    hidden_dim = trial.suggest_categorical("hidden_dim", [16, 32, 64])            # hidden dimension of the nn
+    sigma_init = trial.suggest_categorical("sigma_init", search_space["sigma_init"])
+    hidden_dim = trial.suggest_categorical("hidden_dim", search_space["hidden_dim"])
 
-    print(f"Running generation {trial.number} with sigma_init={sigma_init}")
+    print(f"Running generation {trial.number} with sigma_init={sigma_init} and hidden_dim={hidden_dim}")
 
     # Initialize the model
     model = CPGController(num_outputs=num_cpg_params_to_generate, hidden_dim=hidden_dim)
@@ -96,9 +101,11 @@ def get_study(study_name: str):
         with open(study_name, "rb") as f:
             return pickle.load(f)
     except FileNotFoundError:
+        sampler = optuna.samplers.GridSampler(search_space)
         return optuna.create_study(
             study_name="evosax_brittle_star_nn",
-            direction="maximize"
+            direction="maximize",
+            sampler=sampler
         )
 
 def run_optuna(n_trials: int = 10):
