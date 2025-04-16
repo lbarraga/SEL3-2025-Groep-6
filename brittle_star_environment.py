@@ -10,7 +10,8 @@ from config import (
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
     create_environment, CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS
 )
-from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions
+from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+
 
 class EpisodeEvaluator:
     """Encapsulates environment, CPG, and logic for evaluating episodes."""
@@ -74,25 +75,8 @@ class EpisodeEvaluator:
     def run_episode_logic(self, rng: jnp.ndarray, cpg_params: jnp.ndarray, target_pos: jnp.ndarray) -> typing.Tuple[jnp.ndarray, SimulationState]:
         """Runs a full episode simulation and calculates the final reward."""
 
-        rng_env, rng_cpg = jax.random.split(rng)
-        initial_env_state = self._jit_env_reset(rng=rng_env, target_position=target_pos)
-        initial_cpg_state = self._jit_cpg_reset(rng=rng_cpg)
-
-        initial_state = create_initial_simulation_state(initial_env_state, initial_cpg_state)
-
-        cpg_params = jnp.asarray(cpg_params)
-
-        new_R = cpg_params[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
-        new_X = cpg_params[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
-        new_omega = cpg_params[-1]
-
-        modulated_cpg_state = modulate_cpg(
-            cpg_state=initial_state.cpg_state,
-            new_R=new_R,
-            new_X=new_X,
-            new_omega=new_omega,
-            max_joint_limit=self.max_joint_limit
-        )
+        initial_state = self.create_initial_state(rng=rng, target_pos=target_pos)
+        modulated_cpg_state = self.modulate_cpg(initial_state.cpg_state, jnp.asarray(cpg_params))
 
         loop_state = initial_state.replace(cpg_state=modulated_cpg_state)
 
@@ -108,6 +92,24 @@ class EpisodeEvaluator:
         reward = calculate_final_reward(initial_state, final_state)
 
         return reward, final_state
+
+    @partial(jax.jit, static_argnames=['self'])
+    def create_initial_state(self, rng: jnp.ndarray, target_pos: jnp.ndarray) -> SimulationState:
+        rng_env, rng_cpg = jax.random.split(rng)
+        initial_env_state = self._jit_env_reset(rng=rng_env, target_position=target_pos)
+        initial_cpg_state = self._jit_cpg_reset(rng=rng_cpg)
+
+        return create_initial_simulation_state(initial_env_state, initial_cpg_state)
+
+
+    @partial(jax.jit, static_argnames=['self'])
+    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray) -> CPGState:
+        """Modulates the CPG state with given parameters."""
+        new_R = parameters[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
+        new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
+        new_omega = parameters[-1]
+
+        return modulate_cpg(cpg_state, new_R, new_X, new_omega, self.max_joint_limit)
 
 
 def calculate_final_reward(initial_state: SimulationState, final_state: SimulationState) -> jnp.ndarray:
