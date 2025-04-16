@@ -3,26 +3,29 @@ Project Software Engineering Lab 3
 
 ## setup/env
 
-create a venv with python3.11
+create and activate a venv with python3.11
+
 ```bash
 python3.11 -m venv .venv
-```
-install poetry dependencies
-```bash
-poetry install
-```
-
-## activate environment
-activate the venv
-```bash
 source .venv/bin/activate
 ```
-activate poetry shell
+
+install poetry dependencies
+
 ```bash
-poetry shell
-```
-alternatively run 1 command wit poetry
-```bash
-poetry run <command>
+poetry install --no-root
 ```
 
+## run a script
+
+export the weights and biases api key
+
+```bash
+export WANDB_API_KEY=<your_api_key>
+```
+
+run a script
+
+```bash
+python train_es.py
+```
