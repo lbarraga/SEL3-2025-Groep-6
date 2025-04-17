@@ -6,41 +6,15 @@ from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
 from brittle_star_environment import create_evaluation_fn
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED
+from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, TARGET_SAMPLING_RADIUS, FIXED_OMEGA
 from nn import CPGController
+from util import generate_cpg_for_eval
 from wandb_evosax_logger import WandbEvosaxLogger
 
 POPULATION_SIZE = 100
 NUM_GENERATIONS = 500
 SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "evosax_brittle_star_nn"
-FIXED_OMEGA = 4.5
-TARGET_SAMPLING_RADIUS = 1
-
-def sample_random_target_pos(rng_single):
-    """Samples a random target position on the circle perimeter."""
-    angle = jax.random.uniform(rng_single, minval=0, maxval=2 * jnp.pi)
-    radius = TARGET_SAMPLING_RADIUS
-    target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
-    return target_pos
-
-def calculate_direction(target_pos):
-    """Calculates the normalized direction vector from the origin to the target position."""
-    target_pos_2d = target_pos[:2]
-    norm = TARGET_SAMPLING_RADIUS
-    normalized_direction = target_pos_2d / norm
-    return normalized_direction
-
-def generate_cpg_for_eval(rng_single, flat_model_params_single, model_obj, unravel_fn_single):
-    target_pos = sample_random_target_pos(rng_single)
-    direction = calculate_direction(target_pos)
-
-    # Pass direction to model to get CPG parameters
-    model_params_single = unravel_fn_single(flat_model_params_single)
-    generated_rx_params = model_obj.apply({'params': model_params_single}, direction)
-    cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
-
-    return cpg_params, target_pos
 
 master_key = jax.random.PRNGKey(SEED)
 rng, model_init_rng = jax.random.split(master_key)

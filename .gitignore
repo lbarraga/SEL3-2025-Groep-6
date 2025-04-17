@@ -11,5 +11,6 @@ __pycache__
 *.mp4
 *.zip
 *.msgpack
+*.pkl
 
 wandb/
