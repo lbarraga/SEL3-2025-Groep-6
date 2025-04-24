@@ -20,12 +20,11 @@ class BrittleStarGymEnv(gym.Env):
     """
     Gymnasium-compatible environment for the Brittle Star CPG-based robot.
     Action: CPG parameters (flat array for modulate_cpg)
-    Observation: Environment observations (disk position, etc)
+    Observation: Environment observations (target position, direction (disk position?, joint positions?))
     """
     metadata = {"render_modes": ["rgb_array"], "render_fps": int(1 / CONTROL_TIMESTEP)}
 
     def __init__(self, seed=0):
-        super().__init__()
         self.env = create_environment()
         self.cpg = CPG(dt=CONTROL_TIMESTEP)
         self.max_joint_limit = float(self.env.action_space.high[0]) * 0.5
