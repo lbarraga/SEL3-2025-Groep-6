@@ -56,13 +56,6 @@ class BrittleStarGymEnv(gym.Env):
         self._cpg_state = None
         self._sim_state = None
 
-        self._current_obs = None
-        self._target_pos = None
-        self._steps = 0
-        self._terminated = False
-        self._truncated = False
-        self._info = {}
-
         self._initialize()
 
     @partial(jax.jit, static_argnames=['self'])
