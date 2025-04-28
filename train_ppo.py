@@ -23,7 +23,7 @@ model = PPO(
 )
 
 # Train the agent
-model.learn(total_timesteps=10000, progress_bar=True)
+trained_model = model.learn(total_timesteps=10000, progress_bar=True)
 
 # Test the agent
 observation, info = env.reset()
@@ -33,7 +33,7 @@ terminated = False
 truncated = False
 step = 0
 while step < 500 and not terminated and not truncated:
-    action, _states = model.predict(observation, deterministic=True)
+    action, _states = trained_model.predict(observation, deterministic=True)
     observation, reward, terminated, truncated, info = env.step(action)
     frames.append(env.render())
     step += 1

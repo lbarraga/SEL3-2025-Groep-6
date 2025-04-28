@@ -8,13 +8,16 @@ import jax.numpy as jnp
 from gymnasium import spaces
 from jax import Array
 
+from brittle_star_environment import EpisodeEvaluator
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, CONTROL_TIMESTEP,
-    create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD, MAXIMUM_TIME_BONUS,
+    create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_PPO_EPISODE, NO_PROGRESS_THRESHOLD, MAXIMUM_TIME_BONUS,
     TARGET_REACHED_BONUS
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
 from SimulationState import SimulationState, create_initial_simulation_state
+from util import calculate_direction, sample_random_target_pos
+
 
 class BrittleStarGymEnv(gym.Env):
     """
@@ -35,10 +38,9 @@ class BrittleStarGymEnv(gym.Env):
             dtype=np.float64
         )
 
-        # TODO
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf,
-            shape=(6,),
+            low=-1, high=1,
+            shape=(2,),
             dtype=np.float64
         )
 
@@ -55,12 +57,14 @@ class BrittleStarGymEnv(gym.Env):
         self._cpg_state = None
         self._sim_state = None
 
+        self.brittle_star_env = EpisodeEvaluator()
+
         self._initialize()
 
-    @partial(jax.jit, static_argnames=['self'])
-    def _initialize(self, target_pos: jnp.ndarray):
+    # @partial(jax.jit, static_argnames=['self'])
+    def _initialize(self):
         self._rng, rng = jax.random.split(self._rng)
-
+        target_pos = sample_random_target_pos(rng)
         self._env_state = self._jit_env_reset(rng=rng, target_position=target_pos)
         self._cpg_state = self._jit_cpg_reset(rng=rng)
 
@@ -73,7 +77,7 @@ class BrittleStarGymEnv(gym.Env):
         new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
         new_omega = parameters[-1]
 
-        self._cpg_state = modulate_cpg(cpg_state, new_R, new_X, new_omega, self.max_joint_limit)
+        return modulate_cpg(cpg_state, new_R, new_X, new_omega, self.max_joint_limit)
 
     def get_brittle_star_position(self):
         return self._env_state.observations["disk_position"]
@@ -90,11 +94,10 @@ class BrittleStarGymEnv(gym.Env):
     def get_direction_to_target(self) -> jnp.array:
         return self._env_state.observations["unit_xy_direction_to_target"]
 
+    @partial(jax.jit, static_argnames=['self'])
     def _get_reward(self, initial_state: SimulationState, final_state: SimulationState) -> float:
-        """Calculates the final reward for an episode based on performance."""
         initial_distance = initial_state.current_distance
         current_distance = final_state.current_distance
-        steps = final_state.steps_taken
 
         # 1. Improvement in distance to target
         improvement = initial_distance - current_distance
@@ -102,18 +105,18 @@ class BrittleStarGymEnv(gym.Env):
         # 2. Target reached bonus (only reached target)
         target_reached_bonus = jnp.where(current_distance < CLOSE_ENOUGH_DISTANCE, TARGET_REACHED_BONUS, 0.0)
 
-        # 3. Time bonus (only reached target)
-        steps_clipped = jnp.minimum(steps, MAX_STEPS_PER_EPISODE)
-        time_bonus_factor = 1.0 - (steps_clipped / MAX_STEPS_PER_EPISODE)
-        time_bonus = MAXIMUM_TIME_BONUS * time_bonus_factor
-        time_bonus = jnp.where(current_distance < CLOSE_ENOUGH_DISTANCE, time_bonus, 0.0)
-
-        return improvement + target_reached_bonus + time_bonus
+        return improvement + target_reached_bonus
 
 
     def _get_observation(self):
-        # TODO
-        return jnp.ndarray(0)
+        return calculate_direction(self.get_target_position() - self.get_brittle_star_position())
+
+    def _get_info(self):
+        return {
+            "distance_to_target": float(jnp.linalg.norm(
+                self.get_brittle_star_position() - self.get_target_position()
+            )),
+        }
 
     def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:
         if seed is not None:
@@ -123,16 +126,36 @@ class BrittleStarGymEnv(gym.Env):
         self._initialize()
 
         observation = self._get_observation()
-        info = {
-            "distance_to_target": float(jnp.linalg.norm(
-                self.get_brittle_star_position() - self.get_target_position()
-            ))
-        }
+        info = self._get_info()
 
         return observation, info
 
     def step(self, action):
-        pass
+        self._cpg_state, self._sim_state, reward = self._pure_step(self._cpg_state, self._sim_state, action)
+        self._env_state = self._sim_state.env_state
+        observation = self._get_observation()
+        terminated = self._sim_state.terminated
+        truncated = self._sim_state.truncated
+        info = self._get_info()
+        return observation, reward, terminated, truncated, info
+
+    @partial(jax.jit, static_argnames=['self'])
+    def _pure_step(self, cpg_state, sim_state, action):
+        """Pure step function for JIT compilation."""
+        cpg_state = self.modulate_cpg(cpg_state, jnp.asarray(action))
+        loop_state = sim_state.replace(cpg_state=cpg_state)
+
+        def loop_cond(current_loop_state: SimulationState) -> bool:
+            return (~current_loop_state.terminated
+                    & ~current_loop_state.truncated
+                    & (current_loop_state.steps_taken < MAX_STEPS_PER_PPO_EPISODE))
+
+        prev_state = sim_state
+        sim_state = jax.lax.while_loop(loop_cond, self.brittle_star_env.simulation_single_step_logic, loop_state)
+        reward = self._get_reward(prev_state, self._sim_state)
+
+        return cpg_state, sim_state, reward
+
 
     def render(self):
         from render import post_render
