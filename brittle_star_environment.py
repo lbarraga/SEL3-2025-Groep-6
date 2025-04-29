@@ -8,10 +8,26 @@ from SimulationState import SimulationState, create_initial_simulation_state
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
-    create_environment, CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS
+    create_environment, CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS,
+    TARGET_SAMPLING_RADIUS, FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL  # Add new imports
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+from nn import CPGController
 
+
+def sample_random_target_pos(rng_single):
+    """Samples a random target position on the circle perimeter."""
+    angle = jax.random.uniform(rng_single, minval=0, maxval=2 * jnp.pi)
+    radius = TARGET_SAMPLING_RADIUS
+    target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
+    return target_pos
+
+def calculate_direction(target_pos):
+    """Calculates the normalized direction vector from the origin to the target position."""
+    target_pos_2d = target_pos[:2]
+    norm = TARGET_SAMPLING_RADIUS
+    normalized_direction = target_pos_2d / norm
+    return normalized_direction
 
 class EpisodeEvaluator:
     """Encapsulates environment, CPG, and logic for evaluating episodes."""
@@ -26,7 +42,7 @@ class EpisodeEvaluator:
         self._jit_env_reset = jax.jit(self.env.reset)
         self._jit_env_step = jax.jit(self.env.step)
         self._jit_cpg_reset = jax.jit(self.cpg.reset)
-        self._jit_cpg_step = jax.jit(self.cpg.step) # Step is now also JITted here
+        self._jit_cpg_step = jax.jit(self.cpg.step)
 
     @partial(jax.jit, static_argnames=['self'])
     def simulation_single_step_logic(self, state: SimulationState) -> SimulationState:
@@ -72,9 +88,7 @@ class EpisodeEvaluator:
 
 
     @partial(jax.jit, static_argnames=['self'])
-    def run_episode_logic(self, rng: jnp.ndarray, cpg_params: jnp.ndarray, target_pos: jnp.ndarray) -> typing.Tuple[jnp.ndarray, SimulationState]:
-        """Runs a full episode simulation and calculates the final reward."""
-
+    def run_single_trial(self, rng: jnp.ndarray, cpg_params: jnp.ndarray, target_pos: jnp.ndarray) -> typing.Tuple[jnp.ndarray, SimulationState]:
         initial_state = self.create_initial_state(rng=rng, target_pos=target_pos)
         modulated_cpg_state = self.modulate_cpg(initial_state.cpg_state, jnp.asarray(cpg_params))
 
@@ -92,6 +106,45 @@ class EpisodeEvaluator:
         reward = calculate_final_reward(initial_state, final_state)
 
         return reward, final_state
+
+    @partial(jax.jit, static_argnames=['self', 'model_obj', 'unravel_fn_single', 'num_evaluations'])
+    def evaluate_network_multiple_trials(
+            self,
+            rng: jnp.ndarray,
+            flat_model_params: jnp.ndarray,
+            model_obj: CPGController,
+            unravel_fn_single: typing.Callable,
+            num_evaluations: int
+    ) -> typing.Tuple[jnp.ndarray, typing.Any]: # Changed signature
+        """Evaluates a network over k trials with random targets."""
+
+        model_params_single = unravel_fn_single(flat_model_params) # Unravel once outside the loop
+
+        def run_one_evaluation(carry, rng_single_eval):
+            rng_target, rng_trial = jax.random.split(rng_single_eval)
+
+            # 1. Generate random target
+            target_pos = sample_random_target_pos(rng_target)
+            direction = calculate_direction(target_pos)
+
+            # 2. Infer CPG params from network
+            generated_rx_params = model_obj.apply({'params': model_params_single}, direction)
+            cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
+
+            # 3. Run the simulation trial
+            reward, final_state = self.run_single_trial(rng_trial, cpg_params, target_pos)
+            return carry, (reward, final_state) # Return reward and final_state from scan body
+
+        # Use jax.lax.scan for the k evaluations
+        rng_eval_split = jax.random.split(rng, num_evaluations)
+        _, (rewards, final_states) = jax.lax.scan(run_one_evaluation, None, rng_eval_split)
+
+        # 4. Calculate mean reward
+        mean_reward = jnp.mean(rewards)
+
+        # Return mean reward and the final_states (or aggregated info if needed)
+        # For simplicity, returning the final_states of all k evaluations
+        return mean_reward, final_states
 
     @partial(jax.jit, static_argnames=['self'])
     def create_initial_state(self, rng: jnp.ndarray, target_pos: jnp.ndarray) -> SimulationState:
@@ -133,17 +186,26 @@ def calculate_final_reward(initial_state: SimulationState, final_state: Simulati
     return improvement + target_reached_bonus + time_bonus
 
 EvaluationFn = typing.Callable[
-    [jax.Array, jax.Array, jax.Array], # input: rng_batch, cpg_params, target_pos
-    typing.Tuple[jax.Array, jax.Array] # output: fitness, final_states
+    [jax.Array, jax.Array, CPGController], # input: rng_batch, flat_model_params_batch, model_obj
+    typing.Tuple[jax.Array, typing.Any] # output: fitness (mean rewards), final_states_batch
 ]
 
-def create_evaluation_fn() -> EvaluationFn:
+# Update create_evaluation_fn
+def create_evaluation_fn(model_obj: CPGController, unravel_fn: typing.Callable) -> EvaluationFn:
     """
     Creates the JIT-compiled, vmapped evaluation function using the Evaluator class.
-    This non-vmapped function takes a random key, CPG parameters, and target position,
-    and returns the fitness and final states.
+    Now takes the NN model object and unravel function directly.
     """
     evaluator = EpisodeEvaluator()
-    # JIT + Vmap the method for batch evaluation
-    evaluate_batch_fn = jax.jit(jax.vmap(evaluator.run_episode_logic, in_axes=(0, 0, 0)))
+    # JIT + Vmap the new evaluation method
+    # Pass model_obj and unravel_fn as static arguments to vmap/jit indirectly via partial
+    # Pass num_evaluations as static argument
+    evaluate_single_network_fn = partial(
+        evaluator.evaluate_network_multiple_trials,
+        model_obj=model_obj,
+        unravel_fn_single=unravel_fn,
+        num_evaluations=NUM_EVALUATIONS_PER_INDIVIDUAL
+    )
+    # Vmap over rng and flat_model_params
+    evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_network_fn, in_axes=(0, 0)))
     return evaluate_batch_fn
