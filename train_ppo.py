@@ -2,7 +2,6 @@ import wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import VecVideoRecorder
 
 from brittle_star_gym_environment import BrittleStarGymEnv
 from config import MAX_STEPS_PER_PPO_EPISODE
@@ -26,8 +25,8 @@ DEVICE = "cpu"
 POLICY_KWARGS = dict(net_arch=[16, 16])
 
 def make_env():
-    env = BrittleStarGymEnv()
-    return Monitor(env)
+    aaaa = BrittleStarGymEnv()
+    return Monitor(aaaa)
 
 vec_env = make_vec_env(make_env, n_envs=N_ENVS)
 
@@ -44,14 +43,9 @@ logger = wandb.init(
         "clip_range": CLIP_RANGE,
         "device": DEVICE,
         "policy_kwargs": POLICY_KWARGS,
-    }
-)
-
-env = VecVideoRecorder(
-    vec_env,
-    f"videos/{logger.id}",
-    record_video_trigger=lambda x: x % 20_000 == 0,
-    video_length=200,
+    },
+    monitor_gym=True,
+    sync_tensorboard=True,
 )
 
 # Create the agent with custom hyperparameters
@@ -65,14 +59,14 @@ model = PPO(
     gamma=GAMMA,                   # Discount factor
     gae_lambda=GAE_LAMBDA,              # Factor for trade-off of bias vs variance for GAE
     clip_range=CLIP_RANGE,               # Clipping parameter for PPO
-    verbose=1,
+    verbose=0,
     device=DEVICE,                           # Use CPU explicitly
     policy_kwargs=POLICY_KWARGS,   # Custom policy architecture
     tensorboard_log=f"runs/{logger.id}",
 )
 
 # Train the agent
-trained_model = model.learn(total_timesteps=100_000, progress_bar=True, callback=WandbCallback())
+trained_model = model.learn(total_timesteps=400_000, progress_bar=True, callback=WandbCallback(gradient_save_freq=100, verbose=2))
 trained_model.save("trained_model")
 
 logger.finish()

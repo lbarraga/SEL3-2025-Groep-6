@@ -17,7 +17,7 @@ TARGET_REACHED_BONUS = 1.0
 MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
 
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
-MAX_STEPS_PER_PPO_EPISODE = 80
+MAX_STEPS_PER_PPO_EPISODE = 100
 NO_PROGRESS_THRESHOLD = 40 # Steps without improvement before truncating
 
 DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])

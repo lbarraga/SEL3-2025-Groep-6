@@ -1,6 +1,5 @@
 import math
 from functools import partial
-from typing import Tuple, Dict
 
 import gymnasium as gym
 import numpy as np
@@ -9,7 +8,6 @@ import jax.numpy as jnp
 from gymnasium import spaces
 from jax import Array
 
-from brittle_star_environment import EpisodeEvaluator
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, CONTROL_TIMESTEP,
     create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_PPO_EPISODE,
@@ -51,8 +49,9 @@ class BrittleStarGymEnv(gym.Env):
         )
 
         self.observation_space = spaces.Box(
-            low=0, high=2 * jnp.pi,
-            shape=(1,),
+            low=np.array([0.0, -math.inf, -math.inf]),
+            high=np.array([2 * math.pi, math.inf, math.inf]),
+            shape=(3,),
             dtype=np.float64
         )
 
@@ -119,7 +118,7 @@ class BrittleStarGymEnv(gym.Env):
 
     def _get_observation(self):
         x, y = calculate_direction(self.get_target_position())
-        return [normalize_corner(self.get_disk_rotation() - math.atan2(y, x))]
+        return [normalize_corner(self.get_disk_rotation()), x, y]
 
     def _get_info(self):
         return {
@@ -148,7 +147,7 @@ class BrittleStarGymEnv(gym.Env):
         observation = self._get_observation()
         terminated = self._sim_state.terminated
         truncated = self._sim_state.truncated
-        info = self._get_info()
+        info = {"episode": {'r': reward, 'l': self._sim_state.steps_taken}}
 
         return observation, reward, terminated, truncated, info
 
