@@ -1,3 +1,5 @@
+from typing import List
+
 import jax
 import jax.numpy as jnp
 import pickle
@@ -12,12 +14,20 @@ def sample_random_target_pos(rng_single):
     target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
     return target_pos
 
-def calculate_direction(target_pos):
+def calculate_direction(target_pos: List[float]) -> List[float]:
     """Calculates the normalized direction vector from the origin to the target position."""
     target_pos_2d = target_pos[:2]
     norm = TARGET_SAMPLING_RADIUS
     normalized_direction = target_pos_2d / norm
     return normalized_direction
+
+def normalize_corner(omega: float) -> float:
+    """Normalizes the direction vector to have a magnitude of 1."""
+    while omega < 0:
+        omega += 2 * jnp.pi
+    while omega > 2 * jnp.pi:
+        omega -= 2 * jnp.pi
+    return omega
 
 def generate_cpg_for_eval(
         rng_single,
