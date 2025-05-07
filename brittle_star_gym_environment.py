@@ -117,7 +117,7 @@ class BrittleStarGymEnv(gym.Env):
 
 
     def _get_observation(self):
-        x, y = calculate_direction(self.get_target_position())
+        x, y = calculate_direction(self.get_brittle_star_position() - self.get_target_position())
         return [normalize_corner(self.get_disk_rotation()), x, y]
 
     def _get_info(self):
