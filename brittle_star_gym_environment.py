@@ -35,16 +35,10 @@ class BrittleStarGymEnv(gym.Env):
         # R values (10 values): -1.0 to 1.0
         # X values (10 values): -1.0 to 1.0
         # omega value (1 value): 4.0 to 5.0
-        # self.action_space = spaces.Box(
-        #     low=-1.0,
-        #     high=1.0,
-        #     shape=(NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2,),
-        #     dtype=np.float64
-        # )
         self.action_space = spaces.Box(
-            low=np.concatenate([np.full(10, -1.0), np.full(10, -1.0), np.array([3.0])]),
-            high=np.concatenate([np.full(10, 1.0), np.full(10, 1.0), np.array([4.0])]),
-            shape=(21,),
+            low=-1.0,
+            high=1.0,
+            shape=(20,),
             dtype=np.float64
         )
 
@@ -79,13 +73,12 @@ class BrittleStarGymEnv(gym.Env):
         self._sim_state = create_initial_simulation_state(env_state, cpg_state)
 
     @partial(jax.jit, static_argnames=['self'])
-    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray):
+    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega = FIXED_OMEGA) -> CPGState:
         """Modulates the CPG state with given parameters."""
         new_R = parameters[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
-        new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:-1]
-        new_omega = parameters[-1]
+        new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:]
 
-        return modulate_cpg(cpg_state, new_R, new_X, new_omega, self.max_joint_limit)
+        return modulate_cpg(cpg_state, new_R, new_X, omega, self.max_joint_limit)
 
     def get_brittle_star_position(self):
         return self._sim_state.env_state.observations["disk_position"]
