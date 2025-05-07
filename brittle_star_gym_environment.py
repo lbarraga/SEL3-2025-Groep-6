@@ -59,7 +59,7 @@ class BrittleStarGymEnv(gym.Env):
         self.seed = seed
         self._rng = jax.random.PRNGKey(seed=seed)
 
-        self._sim_state = None
+        self.sim_state = None
 
         self._initialize()
 
@@ -70,7 +70,7 @@ class BrittleStarGymEnv(gym.Env):
         env_state = self._jit_env_reset(rng=rng, target_position=target_pos)
         cpg_state = self._jit_cpg_reset(rng=rng)
 
-        self._sim_state = create_initial_simulation_state(env_state, cpg_state)
+        self.sim_state = create_initial_simulation_state(env_state, cpg_state)
 
     @partial(jax.jit, static_argnames=['self'])
     def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega = FIXED_OMEGA) -> CPGState:
@@ -81,19 +81,19 @@ class BrittleStarGymEnv(gym.Env):
         return modulate_cpg(cpg_state, new_R, new_X, omega, self.max_joint_limit)
 
     def get_brittle_star_position(self):
-        return self._sim_state.env_state.observations["disk_position"]
+        return self.sim_state.env_state.observations["disk_position"]
 
     def get_target_position(self):
-        return jnp.concatenate([self._sim_state.env_state.info["xy_target_position"], jnp.array([0.0])])
+        return jnp.concatenate([self.sim_state.env_state.info["xy_target_position"], jnp.array([0.0])])
 
     def get_disk_rotation(self) -> float:
-        return self._sim_state.env_state.observations["disk_rotation"][-1]
+        return self.sim_state.env_state.observations["disk_rotation"][-1]
 
     def get_joint_positions(self) -> jnp.array:
-        return self._sim_state.env_state.observations["joint_position"]
+        return self.sim_state.env_state.observations["joint_position"]
 
     def get_direction_to_target(self) -> jnp.array:
-        return self._sim_state.env_state.observations["unit_xy_direction_to_target"]
+        return self.sim_state.env_state.observations["unit_xy_direction_to_target"]
 
     @partial(jax.jit, static_argnames=['self'])
     def _get_reward(self, initial_state: SimulationState, final_state: SimulationState) -> float:
@@ -109,7 +109,7 @@ class BrittleStarGymEnv(gym.Env):
         return improvement + target_reached_bonus
 
 
-    def _get_observation(self):
+    def get_observation(self):
         x, y = calculate_direction(self.get_brittle_star_position() - self.get_target_position())
         return [normalize_corner(self.get_disk_rotation()), x, y]
 
@@ -128,19 +128,19 @@ class BrittleStarGymEnv(gym.Env):
 
         self._initialize()
 
-        observation = self._get_observation()
+        observation = self.get_observation()
         info = self._get_info()
 
         return observation, info
 
     def step(self, action):
         # action = jnp.concatenate([action, jnp.array([FIXED_OMEGA])])  # Append omega value to action
-        self._sim_state, reward = self._pure_step(self._sim_state, action)
+        self.sim_state, reward = self._pure_step(self.sim_state, action)
 
-        observation = self._get_observation()
-        terminated = self._sim_state.terminated
-        truncated = self._sim_state.truncated
-        info = {"episode": {'r': reward, 'l': self._sim_state.steps_taken}}
+        observation = self.get_observation()
+        terminated = self.sim_state.terminated
+        truncated = self.sim_state.truncated
+        info = {"episode": {'r': reward, 'l': self.sim_state.steps_taken}}
 
         return observation, reward, terminated, truncated, info
 
@@ -157,7 +157,7 @@ class BrittleStarGymEnv(gym.Env):
 
         prev_state = sim_state
         sim_state = jax.lax.while_loop(loop_cond, self.simulation_single_step_logic, loop_state)
-        reward = self._get_reward(prev_state, self._sim_state)
+        reward = self._get_reward(prev_state, self.sim_state)
 
         return sim_state, reward
 
@@ -207,7 +207,7 @@ class BrittleStarGymEnv(gym.Env):
     def render(self):
         from render import post_render
 
-        frame = self.env.render(state=self._sim_state.env_state)
+        frame = self.env.render(state=self.sim_state.env_state)
         processed_frame = post_render(frame, self.env.environment_configuration)
 
         return np.array(processed_frame)

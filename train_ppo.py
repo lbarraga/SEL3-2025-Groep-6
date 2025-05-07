@@ -25,8 +25,8 @@ DEVICE = "cpu"
 POLICY_KWARGS = dict(net_arch=[16, 16])
 
 def make_env():
-    aaaa = BrittleStarGymEnv()
-    return Monitor(aaaa)
+    gym_env = BrittleStarGymEnv()
+    return Monitor(gym_env)
 
 vec_env = make_vec_env(make_env, n_envs=N_ENVS)
 
@@ -83,15 +83,15 @@ truncated = False
 step = 0
 
 action, _states = trained_model.predict(observation, deterministic=True)
-env._sim_state = env._sim_state.replace(cpg_state=env.modulate_cpg(env._sim_state.cpg_state, action))
+env.sim_state = env.sim_state.replace(cpg_state=env.modulate_cpg(env.sim_state.cpg_state, action))
 
 while step < 500 and not terminated and not truncated:
     if step % MAX_STEPS_PER_PPO_EPISODE == 0:
-        observation = env._get_observation()
+        observation = env.get_observation()
         action, _states = trained_model.predict(observation, deterministic=True)
-        env._sim_state = env._sim_state.replace(cpg_state=env.modulate_cpg(env._sim_state.cpg_state, action))
+        env.sim_state = env.sim_state.replace(cpg_state=env.modulate_cpg(env.sim_state.cpg_state, action))
 
-    env._sim_state = env.simulation_single_step_logic(env._sim_state)
+    env.sim_state = env.simulation_single_step_logic(env.sim_state)
     frames.append(env.render())
     step += 1
 
