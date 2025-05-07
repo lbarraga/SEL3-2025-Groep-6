@@ -42,13 +42,6 @@ class BrittleStarGymEnv(gym.Env):
             dtype=np.float64
         )
 
-        self.observation_space = spaces.Box(
-            low=np.array([0.0, -math.inf, -math.inf]),
-            high=np.array([2 * math.pi, math.inf, math.inf]),
-            shape=(3,),
-            dtype=np.float64
-        )
-
         # Store JIT-compiled versions of env/cpg methods
         self._jit_env_reset = jax.jit(self.env.reset)
         self._jit_env_step = jax.jit(self.env.step)
@@ -62,6 +55,15 @@ class BrittleStarGymEnv(gym.Env):
         self.sim_state = None
 
         self._initialize()
+
+        joint_positions = self.get_joint_positions()
+        len_jpos = len(joint_positions)
+        self.observation_space = spaces.Box(
+            low=np.concatenate([np.array([0.0, -math.inf, -math.inf]), np.full(len_jpos, -self.max_joint_limit)]),
+            high=np.concatenate([np.array([2 * math.pi, math.inf, math.inf]), np.full(len_jpos, self.max_joint_limit)]),
+            shape=(3 + len_jpos,),
+            dtype=np.float64
+        )
 
     # @partial(jax.jit, static_argnames=['self'])
     def _initialize(self):
@@ -111,7 +113,7 @@ class BrittleStarGymEnv(gym.Env):
 
     def get_observation(self):
         x, y = calculate_direction(self.get_brittle_star_position() - self.get_target_position())
-        return [normalize_corner(self.get_disk_rotation()), x, y]
+        return [normalize_corner(self.get_disk_rotation()), x, y, *self.get_joint_positions()]
 
     def _get_info(self):
         return {
