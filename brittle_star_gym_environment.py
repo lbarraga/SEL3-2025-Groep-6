@@ -61,30 +61,21 @@ class BrittleStarGymEnv(gym.Env):
         joint_positions = self.get_joint_positions()
         len_jpos = len(joint_positions)
 
-        phases = self.sim_state.cpg_state.phases
-        len_phases = len(phases)
-
         amplitudes = self.sim_state.cpg_state.amplitudes
         len_amplitudes = len(amplitudes)
-
-        arrayR = self.sim_state.cpg_state.R
-        len_arrayR = len(arrayR)
-
-        arrayX = self.sim_state.cpg_state.X
-        len_arrayX = len(arrayX)
 
         self.observation_space = spaces.Box(
             low=np.concatenate([
                 np.array([0.0, -math.inf, -math.inf]),
                 np.full(len_jpos, -self.max_joint_limit),
-                np.full(len_phases + len_amplitudes + len_arrayR + len_arrayX, -1)
+                np.full(len_amplitudes, -1)
             ]),
             high=np.concatenate([
                 np.array([2 * math.pi, math.inf, math.inf]),
                 np.full(len_jpos, self.max_joint_limit),
-                np.full(len_phases + len_amplitudes + len_arrayR + len_arrayX, 1)
+                np.full(len_amplitudes, 1)
             ]),
-            shape=(3 + len_jpos + len_phases + len_amplitudes + len_arrayR + len_arrayX,),
+            shape=(3 + len_jpos + len_amplitudes,),
             dtype=np.float64
         )
 
@@ -142,15 +133,12 @@ class BrittleStarGymEnv(gym.Env):
 
 
     def get_observation(self):
-        x, y = calculate_direction(self.get_brittle_star_position() - self.get_target_position())
+        x, y = calculate_direction(self.get_target_position() - self.get_brittle_star_position())
         return [
             normalize_corner(self.get_disk_rotation()),
             x, y,
             *self.get_joint_positions(),
-            *self.sim_state.cpg_state.phases,
-            *self.sim_state.cpg_state.amplitudes,
-            *self.sim_state.cpg_state.R,
-            *self.sim_state.cpg_state.X
+            *self.sim_state.cpg_state.amplitudes
         ]
 
     def _get_info(self):
@@ -158,7 +146,6 @@ class BrittleStarGymEnv(gym.Env):
             "distance_to_target": float(jnp.linalg.norm(
                 self.get_brittle_star_position() - self.get_target_position()
             )),
-            # "joint_positions": self.get_joint_positions()
         }
 
     def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:
