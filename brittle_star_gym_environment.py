@@ -29,7 +29,7 @@ class BrittleStarGymEnv(gym.Env):
     def __init__(self, seed=0):
         self.env = create_environment()
         self.cpg = CPG(dt=CONTROL_TIMESTEP)
-        self.max_joint_limit = float(self.env.action_space.high[0]) * 0.5
+        self.max_joint_limit = float(self.env.action_space.high[0]) * 0.25
 
         # Define action space with correct bounds (flattened version)
         # R values (10 values): -1.0 to 1.0
@@ -57,7 +57,7 @@ class BrittleStarGymEnv(gym.Env):
         self._initialize()
 
         # Define observation space
-        # disk rotation z, direction (x, y), joint positions, phases, amplitudes
+        # disk rotation z, direction (x, y), joint positions, amplitudes
         joint_positions = self.get_joint_positions()
         len_jpos = len(joint_positions)
 
@@ -68,23 +68,16 @@ class BrittleStarGymEnv(gym.Env):
             low=np.concatenate([
                 np.array([0.0, -math.inf, -math.inf]),
                 np.full(len_jpos, -self.max_joint_limit),
-                np.full(len_amplitudes, -1)
+                np.full(len_amplitudes, 0)
             ]),
             high=np.concatenate([
                 np.array([2 * math.pi, math.inf, math.inf]),
                 np.full(len_jpos, self.max_joint_limit),
-                np.full(len_amplitudes, 1)
+                np.full(len_amplitudes, self.max_joint_limit)
             ]),
             shape=(3 + len_jpos + len_amplitudes,),
             dtype=np.float64
         )
-
-        # self.observation_space = spaces.Box(
-        #     low=np.concatenate([np.array([0.0, -math.inf, -math.inf]), np.full(len_jpos, -self.max_joint_limit)]),
-        #     high=np.concatenate([np.array([2 * math.pi, math.inf, math.inf]), np.full(len_jpos, self.max_joint_limit)]),
-        #     shape=(3 + len_jpos,),
-        #     dtype=np.float64
-        # )
 
     # @partial(jax.jit, static_argnames=['self'])
     def _initialize(self):
@@ -143,9 +136,9 @@ class BrittleStarGymEnv(gym.Env):
 
     def _get_info(self):
         return {
-            "distance_to_target": float(jnp.linalg.norm(
+            "distance_to_target": jnp.linalg.norm(
                 self.get_brittle_star_position() - self.get_target_position()
-            )),
+            ),
         }
 
     def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:
