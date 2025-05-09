@@ -32,12 +32,11 @@ class BrittleStarGymEnv(gym.Env):
         self.max_joint_limit = float(self.env.action_space.high[0]) * 0.25
 
         # Define action space with correct bounds (flattened version)
-        # R values (10 values): -1.0 to 1.0
-        # X values (10 values): -1.0 to 1.0
-        # omega value (1 value): 4.0 to 5.0
+        # R values (10 values): 0 to max_joint_limit
+        # X values (10 values): 0 to max_joint_limit
         self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
+            low=0.0,
+            high=self.max_joint_limit,
             shape=(20,),
             dtype=np.float64
         )
@@ -64,15 +63,17 @@ class BrittleStarGymEnv(gym.Env):
         amplitudes = self.sim_state.cpg_state.amplitudes
         len_amplitudes = len(amplitudes)
 
+        # joint positions: -1.0 to 1.0
+        # amplitudes: 0 to max_joint_limit
         self.observation_space = spaces.Box(
             low=np.concatenate([
                 np.array([0.0, -math.inf, -math.inf]),
-                np.full(len_jpos, -self.max_joint_limit),
+                np.full(len_jpos, -1),
                 np.full(len_amplitudes, 0)
             ]),
             high=np.concatenate([
                 np.array([2 * math.pi, math.inf, math.inf]),
-                np.full(len_jpos, self.max_joint_limit),
+                np.full(len_jpos, 1),
                 np.full(len_amplitudes, self.max_joint_limit)
             ]),
             shape=(3 + len_jpos + len_amplitudes,),
