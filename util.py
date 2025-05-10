@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 import pickle
 
+from jax import lax
+
 from config import TARGET_SAMPLING_RADIUS, FIXED_OMEGA
 
 
@@ -21,12 +23,32 @@ def calculate_direction(target_pos: List[float]) -> List[float]:
     normalized_direction = target_pos_2d / norm
     return normalized_direction
 
-def normalize_corner(omega: float) -> float:
-    """Normalizes the direction vector to have a magnitude of 1."""
-    while omega < 0:
-        omega += 2 * jnp.pi
-    while omega > 2 * jnp.pi:
-        omega -= 2 * jnp.pi
+# def normalize_corner(omega: float) -> float:
+#     """Normalizes the direction vector to have a magnitude of 1."""
+#     while omega < 0:
+#         omega += 2 * jnp.pi
+#     while omega > 2 * jnp.pi:
+#         omega -= 2 * jnp.pi
+#     return omega
+
+def normalize_corner(omega):
+    """Normalizes a corner angle to be within a suitable range."""
+    two_pi = 2 * jnp.pi
+
+    def cond_positive(val):
+        return val < 0
+
+    def body_positive(val):
+        return val + two_pi
+
+    def cond_negative(val):
+        return val > two_pi
+
+    def body_negative(val):
+        return val - two_pi
+
+    omega = lax.while_loop(cond_positive, body_positive, omega)
+    omega = lax.while_loop(cond_negative, body_negative, omega)
     return omega
 
 def generate_cpg_for_eval(

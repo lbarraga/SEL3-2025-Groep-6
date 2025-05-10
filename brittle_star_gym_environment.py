@@ -2,10 +2,10 @@ import math
 from functools import partial
 
 import gymnasium as gym
-import numpy as np
 import jax
 import jax.numpy as jnp
-from gymnasium import spaces
+import numpy as np
+from gymnasium.spaces import Box
 from jax import Array
 
 from config import (
@@ -29,16 +29,16 @@ class BrittleStarGymEnv(gym.Env):
     def __init__(self, seed=0):
         self.env = create_environment()
         self.cpg = CPG(dt=CONTROL_TIMESTEP)
-        self.max_joint_limit = float(self.env.action_space.high[0]) * 0.25
+        self.max_joint_limit = self.env.action_space.high[0] * 0.25
 
         # Define action space with correct bounds (flattened version)
         # R values (10 values): 0 to max_joint_limit
         # X values (10 values): 0 to max_joint_limit
-        self.action_space = spaces.Box(
-            low=0.0,
-            high=self.max_joint_limit,
+        self.action_space = Box(
+            low=-1,
+            high=1,
             shape=(20,),
-            dtype=np.float64
+            dtype=jnp.float64
         )
 
         # Store JIT-compiled versions of env/cpg methods
@@ -65,32 +65,33 @@ class BrittleStarGymEnv(gym.Env):
 
         # joint positions: -1.0 to 1.0
         # amplitudes: 0 to max_joint_limit
-        self.observation_space = spaces.Box(
+        self.observation_space = Box(
             low=np.concatenate([
                 np.array([0.0, -math.inf, -math.inf]),
                 np.full(len_jpos, -1),
-                np.full(len_amplitudes, 0)
+                np.full(len_amplitudes, -1)
             ]),
             high=np.concatenate([
                 np.array([2 * math.pi, math.inf, math.inf]),
-                np.full(len_jpos, 1),
-                np.full(len_amplitudes, self.max_joint_limit)
+                np.full(len_jpos, 2 * math.pi),
+                np.full(len_amplitudes, 1)
             ]),
             shape=(3 + len_jpos + len_amplitudes,),
-            dtype=np.float64
+            dtype=jnp.float64
         )
 
     # @partial(jax.jit, static_argnames=['self'])
     def _initialize(self):
         self._rng, rng = jax.random.split(self._rng)
-        target_pos = sample_random_target_pos(rng)
+        # target_pos = sample_random_target_pos(rng)
+        target_pos = jnp.array([1.25, 0.0, 0.0])
         env_state = self._jit_env_reset(rng=rng, target_position=target_pos)
         cpg_state = self._jit_cpg_reset(rng=rng)
 
         self.sim_state = create_initial_simulation_state(env_state, cpg_state)
 
     @partial(jax.jit, static_argnames=['self'])
-    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega = FIXED_OMEGA) -> CPGState:
+    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega = 3.1415927) -> CPGState:
         """Modulates the CPG state with given parameters."""
         new_R = parameters[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
         new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:]
@@ -128,12 +129,12 @@ class BrittleStarGymEnv(gym.Env):
 
     def get_observation(self):
         x, y = calculate_direction(self.get_target_position() - self.get_brittle_star_position())
-        return [
+        return jnp.array([
             normalize_corner(self.get_disk_rotation()),
             x, y,
             *self.get_joint_positions(),
             *self.sim_state.cpg_state.amplitudes
-        ]
+        ])
 
     def _get_info(self):
         return {
@@ -155,13 +156,13 @@ class BrittleStarGymEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        # action = jnp.concatenate([action, jnp.array([FIXED_OMEGA])])  # Append omega value to action
         self.sim_state, reward = self._pure_step(self.sim_state, action)
 
         observation = self.get_observation()
         terminated = self.sim_state.terminated
         truncated = self.sim_state.truncated
-        info = {"episode": {'r': reward, 'l': self.sim_state.steps_taken}}
+        # info = {"episode": {'r': reward, 'l': self.sim_state.steps_taken}}
+        info = self._get_info()
 
         return observation, reward, terminated, truncated, info
 
@@ -231,7 +232,7 @@ class BrittleStarGymEnv(gym.Env):
         frame = self.env.render(state=self.sim_state.env_state)
         processed_frame = post_render(frame, self.env.environment_configuration)
 
-        return np.array(processed_frame)
+        return jnp.array(processed_frame)
 
     def close(self):
         pass
