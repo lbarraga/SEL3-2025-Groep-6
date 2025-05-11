@@ -35,8 +35,14 @@ class BrittleStarGymEnv(gym.Env):
         # R values (10 values): 0 to max_joint_limit
         # X values (10 values): 0 to max_joint_limit
         self.action_space = Box(
-            low=-1,
-            high=1,
+            low=np.concatenate([
+                np.full(10, -1),
+                np.full(10, -self.max_joint_limit)
+            ]),
+            high=np.concatenate([
+                np.full(10, 1),
+                np.full(10, self.max_joint_limit)
+            ]),
             shape=(20,),
             dtype=jnp.float64
         )
@@ -69,15 +75,15 @@ class BrittleStarGymEnv(gym.Env):
             low=np.concatenate([
                 np.array([0.0, -math.inf, -math.inf]),
                 np.full(len_jpos, -1),
-                np.full(len_amplitudes, -1)
+                np.full(len_amplitudes, -self.max_joint_limit)
             ]),
             high=np.concatenate([
                 np.array([2 * math.pi, math.inf, math.inf]),
-                np.full(len_jpos, 2 * math.pi),
-                np.full(len_amplitudes, 1)
+                np.full(len_jpos, 1),
+                np.full(len_amplitudes, self.max_joint_limit)
             ]),
             shape=(3 + len_jpos + len_amplitudes,),
-            dtype=jnp.float64
+            dtype=np.float64
         )
 
     # @partial(jax.jit, static_argnames=['self'])
@@ -126,15 +132,16 @@ class BrittleStarGymEnv(gym.Env):
 
         return improvement + target_reached_bonus
 
-
+    @partial(jax.jit, static_argnames=['self'])
     def get_observation(self):
         x, y = calculate_direction(self.get_target_position() - self.get_brittle_star_position())
-        return jnp.array([
+        observation = jnp.array([
             normalize_corner(self.get_disk_rotation()),
             x, y,
             *self.get_joint_positions(),
             *self.sim_state.cpg_state.amplitudes
         ])
+        return observation
 
     def _get_info(self):
         return {
@@ -143,7 +150,7 @@ class BrittleStarGymEnv(gym.Env):
             ),
         }
 
-    def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:
+    def reset(self, seed=None, options=None) -> Array:
         if seed is not None:
             self.seed = seed
             self._rng = jax.random.PRNGKey(seed=seed)
@@ -151,9 +158,8 @@ class BrittleStarGymEnv(gym.Env):
         self._initialize()
 
         observation = self.get_observation()
-        info = self._get_info()
 
-        return observation, info
+        return observation
 
     def step(self, action):
         self.sim_state, reward = self._pure_step(self.sim_state, action)
@@ -161,8 +167,11 @@ class BrittleStarGymEnv(gym.Env):
         observation = self.get_observation()
         terminated = self.sim_state.terminated
         truncated = self.sim_state.truncated
-        # info = {"episode": {'r': reward, 'l': self.sim_state.steps_taken}}
-        info = self._get_info()
+        info = {
+            "reward": reward,
+            "terminated": terminated,
+            "TimeLimit.truncated": truncated,
+        }
 
         return observation, reward, terminated, truncated, info
 

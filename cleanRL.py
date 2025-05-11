@@ -66,7 +66,7 @@ class Args:
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    num_steps: int = 128
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -135,7 +135,7 @@ class Critic(nn.Module):
 
 
 class Actor(nn.Module):
-    action_dim: int = 20 # number of elements in action_space
+    action_dim: int
 
     @nn.compact
     def __call__(self, x):
@@ -218,15 +218,15 @@ if __name__ == "__main__":
     assert isinstance(env.action_space, gymnasium.spaces.Box), "only continuous action space is supported"
 
     @jax.jit
-    def step_env_wrapped(episode_stats, action, env):
+    def step_env_wrapped(episode_stats, action):
         next_obs, reward, terminated, truncated, info = env.step(action)
-        next_done = terminated | truncated
+        next_done = jnp.array([terminated | truncated])
 
-        new_episode_return = episode_stats.episode_returns + info["reward"]
+        new_episode_return = episode_stats.episode_returns + reward
         new_episode_length = episode_stats.episode_lengths + 1
         episode_stats = episode_stats.replace(
-            episode_returns=(new_episode_return) * (1 - info["terminated"]) * (1 - info["TimeLimit.truncated"]),
-            episode_lengths=(new_episode_length) * (1 - info["terminated"]) * (1 - info["TimeLimit.truncated"]),
+            episode_returns=new_episode_return * ~info["terminated"] * ~info["TimeLimit.truncated"],
+            episode_lengths=new_episode_length * ~info["terminated"] * ~info["TimeLimit.truncated"],
             # only update the `returned_episode_returns` if the episode is done
             returned_episode_returns=jnp.where(
                 info["terminated"] + info["TimeLimit.truncated"], new_episode_return,
@@ -253,13 +253,10 @@ if __name__ == "__main__":
     network_params = network.init(network_key, np.array([env.observation_space.sample()]))
     actor_params = actor.init(actor_key, network.apply(network_params, np.array([env.observation_space.sample()])))
     critic_params = critic.init(critic_key, network.apply(network_params, np.array([env.observation_space.sample()])))
+
     agent_state = TrainState.create(
         apply_fn=None,
-        params=AgentParams(
-            network_params,
-            actor_params,
-            critic_params,
-        ),
+        params={'network_params': network_params, 'actor_params': actor_params, 'critic_params': critic_params},
         tx=optax.chain(
             optax.clip_by_global_norm(args.max_grad_norm),
             optax.inject_hyperparams(optax.adam)(
@@ -279,8 +276,8 @@ if __name__ == "__main__":
             key: jax.random.PRNGKey,
     ):
         """sample action, calculate value, logprob for continuous action space"""
-        hidden = network.apply(agent_state.params.network_params, next_obs)
-        mean, log_std = actor.apply(agent_state.params.actor_params, hidden)
+        hidden = network.apply(agent_state.params['network_params'], next_obs)
+        mean, log_std = actor.apply(agent_state.params['actor_params'], hidden)
         std = jnp.exp(log_std)
         key, subkey = jax.random.split(key)
         action = mean + std * jax.random.normal(subkey, shape=mean.shape)
@@ -288,7 +285,8 @@ if __name__ == "__main__":
         # Calculate log probability of the action
         logprob = -0.5 * jnp.sum(((action - mean) / std) ** 2 + 2 * jnp.log(std) + jnp.log(2 * jnp.pi), axis=-1)
 
-        value = critic.apply(agent_state.params.critic_params, hidden).squeeze(1)
+        # TODO: squeeze(1) when using multiple envs
+        value = critic.apply(agent_state.params['critic_params'], hidden)
         return action, logprob, value, key
 
     @jax.jit
@@ -298,8 +296,8 @@ if __name__ == "__main__":
             action: np.ndarray,
     ):
         """calculate value, logprob of supplied `action` for continuous action space"""
-        hidden = network.apply(params.network_params, x)
-        mean, log_std = actor.apply(params.actor_params, hidden)
+        hidden = network.apply(params['network_params'], x)
+        mean, log_std = actor.apply(params['actor_params'], hidden)
         std = jnp.exp(log_std)
 
         # Calculate log probability of the given action
@@ -308,7 +306,8 @@ if __name__ == "__main__":
         # Entropy of a multivariate Gaussian with diagonal covariance
         entropy = jnp.sum(0.5 * (1 + jnp.log(2 * jnp.pi * std ** 2)), axis=-1)
 
-        value = critic.apply(params.critic_params, hidden).squeeze()
+        # TODO: squeeze() when using multiple envs
+        value = critic.apply(params['critic_params'], hidden)
         return logprob, entropy, value
 
     def compute_gae_once(carry, inp, gamma, gae_lambda):
@@ -329,9 +328,10 @@ if __name__ == "__main__":
             next_done: np.ndarray,
             storage: Storage,
     ):
+        # TODO: squeeze() when using multiple envs
         next_value = critic.apply(
-            agent_state.params.critic_params, network.apply(agent_state.params.network_params, next_obs)
-        ).squeeze()
+            agent_state.params['critic_params'], network.apply(agent_state.params['network_params'], next_obs)
+        )
 
         advantages = jnp.zeros((args.num_envs,))
         dones = jnp.concatenate([storage.dones, next_done[None, :]], axis=0)
@@ -379,7 +379,8 @@ if __name__ == "__main__":
             key, subkey = jax.random.split(key)
 
             def flatten(x):
-                return x.reshape((-1,) + x.shape[2:])
+                x = x.reshape((-1,) + x.shape[2:])
+                return x
 
             # taken from: https://github.com/google/brax/blob/main/brax/training/agents/ppo/train.py
             def convert_data(x: jnp.ndarray):
@@ -387,8 +388,12 @@ if __name__ == "__main__":
                 x = jnp.reshape(x, (args.num_minibatches, -1) + x.shape[1:])
                 return x
 
-            flatten_storage = jax.tree_map(flatten, storage)
-            shuffled_storage = jax.tree_map(convert_data, flatten_storage)
+            # print("Storage before flattening", storage)
+            # flatten_storage = jax.tree_map(flatten, storage)
+            # print("Flattened storage", flatten_storage.obs.shape)
+            # shuffled_storage = jax.tree_map(convert_data, flatten_storage)
+            # print("Shuffled storage", shuffled_storage.obs.shape)
+            shuffled_storage = jax.tree_map(convert_data, storage)
 
             def update_minibatch(agent_state, minibatch):
                 (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), grads = ppo_loss_grad_fn(
@@ -425,7 +430,7 @@ if __name__ == "__main__":
         agent_state, episode_stats, obs, done, key = carry
         action, logprob, value, key = get_action_and_value(agent_state, obs, key)
 
-        episode_stats, next_obs, reward, next_done, _ = env_step_fn(episode_stats, action, env)
+        episode_stats, next_obs, reward, next_done, _ = env_step_fn(episode_stats, action)
         storage = Storage(
             obs=obs,
             actions=action,
@@ -461,6 +466,7 @@ if __name__ == "__main__":
             storage,
             key,
         )
+        print("Rewards?: ", episode_stats.returned_episode_returns)
         avg_episodic_return = np.mean(jax.device_get(episode_stats.returned_episode_returns))
         print(f"global_step={global_step}, avg_episodic_return={avg_episodic_return}")
 
