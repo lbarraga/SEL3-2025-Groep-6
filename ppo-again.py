@@ -10,7 +10,7 @@ from wandb.integration.sb3 import WandbCallback
 WANDB_PROJECT_NAME = "ppo_brittle_star_jaxenv"
 
 # --- Hyperparameters ---
-N_ENVS = 4
+N_ENVS = 2
 LEARNING_RATE = 3e-4
 N_STEPS = 8
 BATCH_SIZE = 64

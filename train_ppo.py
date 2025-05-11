@@ -8,7 +8,7 @@ from config import MAX_STEPS_PER_PPO_EPISODE
 from render import show_video
 from wandb.integration.sb3 import WandbCallback
 
-WANDB_PROJECT_NAME = "ppo_brittle_star_gym"
+WANDB_PROJECT_NAME = "ppo_brittle_star_gym_bounds"
 
 # Create the environment
 env = BrittleStarGymEnv()
@@ -66,7 +66,7 @@ model = PPO(
 )
 
 # Train the agent
-trained_model = model.learn(total_timesteps=400_000, progress_bar=True, callback=WandbCallback(gradient_save_freq=100, verbose=2))
+trained_model = model.learn(total_timesteps=1_250_000, progress_bar=True, callback=WandbCallback(gradient_save_freq=100, verbose=2))
 trained_model.save("trained_model")
 
 logger.finish()

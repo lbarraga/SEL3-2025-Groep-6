@@ -466,7 +466,7 @@ if __name__ == "__main__":
             storage,
             key,
         )
-        print("Rewards?: ", episode_stats.returned_episode_returns)
+        print("Rewards?: ", episode_stats.episode_returns)
         avg_episodic_return = np.mean(jax.device_get(episode_stats.returned_episode_returns))
         print(f"global_step={global_step}, avg_episodic_return={avg_episodic_return}")
 
