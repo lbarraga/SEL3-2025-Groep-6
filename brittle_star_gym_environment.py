@@ -89,8 +89,8 @@ class BrittleStarGymEnv(gym.Env):
     # @partial(jax.jit, static_argnames=['self'])
     def _initialize(self):
         self._rng, rng = jax.random.split(self._rng)
-        # target_pos = sample_random_target_pos(rng)
-        target_pos = jnp.array([1.25, 0.0, 0.0])
+        target_pos = sample_random_target_pos(rng)
+        # target_pos = jnp.array([1.25, 0.0, 0.0])
         env_state = self._jit_env_reset(rng=rng, target_position=target_pos)
         cpg_state = self._jit_cpg_reset(rng=rng)
 
