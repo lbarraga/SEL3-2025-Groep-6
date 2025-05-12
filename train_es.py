@@ -37,7 +37,7 @@ logger = WandbEvosaxLogger(
         "num_model_params": num_model_params,
         "fixed_omega": FIXED_OMEGA,
         "target_sampling_radius": TARGET_SAMPLING_RADIUS,
-        "nn_hidden_dim": model.hidden_dim,
+        "nn_hidden_dim": f"{model.hidden_dim1} x {model.hidden_dim2}",
         "num_evaluations_per_individual": NUM_EVALUATIONS_PER_INDIVIDUAL,
     }
 )

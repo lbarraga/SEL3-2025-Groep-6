@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from brittle_star_environment import EpisodeEvaluator
 from config import (
     NUM_ARMS,
-    NUM_OSCILLATORS_PER_ARM, SEED
+    NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA
 )
 from nn import CPGController, load_model_params
 from render import show_video, post_render

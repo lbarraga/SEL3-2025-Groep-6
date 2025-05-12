@@ -36,7 +36,7 @@ class EpisodeEvaluator:
         """Initializes the evaluator, environment, CPG, and JITted functions."""
         self.env = create_environment()
         self.cpg = CPG(dt=CONTROL_TIMESTEP)
-        self.max_joint_limit = float(self.env.action_space.high[0])
+        self.max_joint_limit = float(self.env.action_space.high[0]) * 0.5
 
         # Store JIT-compiled versions of env/cpg methods
         self._jit_env_reset = jax.jit(self.env.reset)

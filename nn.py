@@ -7,13 +7,14 @@ import jax.numpy as jnp
 
 class CPGController(nn.Module):
     num_outputs: int
-    hidden_dim: int = 16
+    hidden_dim1: int = 16
+    hidden_dim2: int = 32
 
     @nn.compact
     def __call__(self, norm_direction: jnp.ndarray) -> jnp.ndarray:
-        x = nn.Dense(features=self.hidden_dim)(norm_direction)
+        x = nn.Dense(features=self.hidden_dim1)(norm_direction)
         x = nn.relu(x)
-        x = nn.Dense(features=self.hidden_dim)(x)
+        x = nn.Dense(features=self.hidden_dim2)(x)
         x = nn.relu(x)
         x = nn.Dense(features=self.num_outputs)(x)
         return x
