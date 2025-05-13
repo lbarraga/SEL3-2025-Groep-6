@@ -14,7 +14,7 @@ from wandb_evosax_logger import WandbEvosaxLogger
 POPULATION_SIZE = 300
 NUM_GENERATIONS = 500
 SIGMA_INIT = 0.1
-WANDB_PROJECT_NAME = "evosax_brittle_star_nn_k_eval"  # Updated project name
+WANDB_PROJECT_NAME = "k_eval_multiple_inference_joint_positions"  # Updated project name
 
 master_key = jax.random.PRNGKey(SEED)
 rng, model_init_rng = jax.random.split(master_key)
