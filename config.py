@@ -16,6 +16,9 @@ CLOSE_ENOUGH_DISTANCE = 0.2 # Distance to target position to consider it reached
 TARGET_REACHED_BONUS = 1.0
 MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
 
+NUM_INFERENCES_PER_TRIAL = 5 # Number of inferences per trial
+NUM_STEPS_PER_INFERENCE = 30
+
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
 NO_PROGRESS_THRESHOLD = 20 # Steps without improvement before truncating
 

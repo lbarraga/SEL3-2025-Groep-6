@@ -9,7 +9,8 @@ from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
     MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
     create_environment, CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS,
-    TARGET_SAMPLING_RADIUS, FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL  # Add new imports
+    TARGET_SAMPLING_RADIUS, FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL, NUM_INFERENCES_PER_TRIAL,
+    NUM_STEPS_PER_INFERENCE  # Add new imports
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
 from nn import CPGController
@@ -22,12 +23,13 @@ def sample_random_target_pos(rng_single):
     target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
     return target_pos
 
-def calculate_direction(target_pos):
+def calculate_direction(state: SimulationState) -> jnp.ndarray:
     """Calculates the normalized direction vector from the origin to the target position."""
-    target_pos_2d = target_pos[:2]
-    norm = TARGET_SAMPLING_RADIUS
-    normalized_direction = target_pos_2d / norm
-    return normalized_direction
+    return state.env_state.observations["unit_xy_direction_to_target"]
+
+def get_joint_positions(env: SimulationState):
+    """Extracts joint positions from the environment state."""
+    return env.env_state.observations["joint_position"]
 
 class EpisodeEvaluator:
     """Encapsulates environment, CPG, and logic for evaluating episodes."""
@@ -72,7 +74,7 @@ class EpisodeEvaluator:
         terminated = (current_distance < CLOSE_ENOUGH_DISTANCE) | new_env_state.terminated
 
         # Truncate if no progress has been made for a certain number of steps
-        truncated = new_env_state.truncated | ((steps_taken - last_progress_step) > NO_PROGRESS_THRESHOLD)
+        truncated = new_env_state.truncated # | ((steps_taken - last_progress_step) > NO_PROGRESS_THRESHOLD)
 
         new_state = state.replace(
             env_state=new_env_state,
@@ -86,26 +88,62 @@ class EpisodeEvaluator:
         )
         return new_state
 
+    @partial(jax.jit, static_argnames=['self', 'model_obj'])
+    def run_single_trial(self,
+                         rng: jnp.ndarray,
+                         initial_target_pos: jnp.ndarray,
+                         model_obj: CPGController,
+                         model_params_single: typing.Any
+                         ) -> typing.Tuple[jnp.ndarray, SimulationState]:
+        """Runs a single trial with multiple CPG inferences, using global constants."""
+        initial_state = self.create_initial_state(rng=rng, target_pos=initial_target_pos)
 
-    @partial(jax.jit, static_argnames=['self'])
-    def run_single_trial(self, rng: jnp.ndarray, cpg_params: jnp.ndarray, target_pos: jnp.ndarray) -> typing.Tuple[jnp.ndarray, SimulationState]:
-        initial_state = self.create_initial_state(rng=rng, target_pos=target_pos)
-        modulated_cpg_state = self.modulate_cpg(initial_state.cpg_state, jnp.asarray(cpg_params))
 
-        loop_state = initial_state.replace(cpg_state=modulated_cpg_state)
+        def inference_loop_cond_fn(loop_vars):
+            current_sim_state, num_inferences_done = loop_vars
+            return ((num_inferences_done < NUM_INFERENCES_PER_TRIAL) &
+                    ~current_sim_state.terminated &
+                    ~current_sim_state.truncated)
 
-        def body_step(current_loop_state: SimulationState) -> SimulationState:
-            return self.simulation_single_step_logic(current_loop_state)
+        def inference_loop_body_fn(loop_vars):
+            initial_state_at_inference, num_inferences_done = loop_vars
 
-        def loop_cond(current_loop_state: SimulationState) -> bool:
-            return (~current_loop_state.terminated
-                    & ~current_loop_state.truncated
-                    & (current_loop_state.steps_taken < MAX_STEPS_PER_EPISODE))
+            # inputs to neural network
+            direction = calculate_direction(initial_state_at_inference)
+            joint_positions = get_joint_positions(initial_state_at_inference)
+            nn_input = jnp.concatenate([direction, joint_positions])
 
-        final_state = jax.lax.while_loop(loop_cond, body_step, loop_state)
-        reward = calculate_final_reward(initial_state, final_state)
+            generated_rx_params = model_obj.apply({'params': model_params_single}, nn_input)
+            cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
 
-        return reward, final_state
+            modulated_cpg_state = self.modulate_cpg(initial_state_at_inference.cpg_state, cpg_params)
+            sim_state_after_modulation = initial_state_at_inference.replace(cpg_state=modulated_cpg_state)
+
+            initial_inner_loop_state = sim_state_after_modulation
+
+            target_steps_for_this_inference_period = sim_state_after_modulation.steps_taken + NUM_STEPS_PER_INFERENCE
+
+            def inner_sim_loop_cond_fn(inner_loop_sim_state: SimulationState) -> bool:
+                return ((~inner_loop_sim_state.terminated &
+                         ~inner_loop_sim_state.truncated) &
+                        (inner_loop_sim_state.steps_taken < target_steps_for_this_inference_period))
+
+            sim_state_after_inference_period = jax.lax.while_loop(
+                inner_sim_loop_cond_fn,
+                self.simulation_single_step_logic,
+                initial_inner_loop_state
+            )
+
+            return sim_state_after_inference_period, num_inferences_done + 1
+
+        loop_vars_init = (initial_state, 0)
+
+        final_loop_vars = jax.lax.while_loop(inference_loop_cond_fn, inference_loop_body_fn, loop_vars_init)
+        final_state_overall, num_inferences_done = final_loop_vars
+        final_state_overall = final_state_overall.replace(n_inferences=num_inferences_done)
+
+        reward = calculate_final_reward(initial_state, final_state_overall)
+        return reward, final_state_overall
 
     @partial(jax.jit, static_argnames=['self', 'model_obj', 'unravel_fn_single', 'num_evaluations'])
     def evaluate_network_multiple_trials(
@@ -115,35 +153,20 @@ class EpisodeEvaluator:
             model_obj: CPGController,
             unravel_fn_single: typing.Callable,
             num_evaluations: int
-    ) -> typing.Tuple[jnp.ndarray, typing.Any]: # Changed signature
-        """Evaluates a network over k trials with random targets."""
-
-        model_params_single = unravel_fn_single(flat_model_params) # Unravel once outside the loop
+    ) -> typing.Tuple[jnp.ndarray, typing.Any]:
+        """Evaluates a network over k trials with random targets and multiple inferences per trial."""
+        model_params_single = unravel_fn_single(flat_model_params)
 
         def run_one_evaluation(carry, rng_single_eval):
             rng_target, rng_trial = jax.random.split(rng_single_eval)
-
-            # 1. Generate random target
             target_pos = sample_random_target_pos(rng_target)
-            direction = calculate_direction(target_pos)
 
-            # 2. Infer CPG params from network
-            generated_rx_params = model_obj.apply({'params': model_params_single}, direction)
-            cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
+            reward, final_state = self.run_single_trial(rng_trial, target_pos, model_obj, model_params_single)
+            return carry, (reward, final_state)
 
-            # 3. Run the simulation trial
-            reward, final_state = self.run_single_trial(rng_trial, cpg_params, target_pos)
-            return carry, (reward, final_state) # Return reward and final_state from scan body
-
-        # Use jax.lax.scan for the k evaluations
         rng_eval_split = jax.random.split(rng, num_evaluations)
         _, (rewards, final_states) = jax.lax.scan(run_one_evaluation, None, rng_eval_split)
-
-        # 4. Calculate mean reward
         mean_reward = jnp.mean(rewards)
-
-        # Return mean reward and the final_states (or aggregated info if needed)
-        # For simplicity, returning the final_states of all k evaluations
         return mean_reward, final_states
 
     @partial(jax.jit, static_argnames=['self'])

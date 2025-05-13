@@ -32,6 +32,7 @@ class WandbEvosaxLogger:
         # --- Current Distance ---
         # Shape: (POPULATION_SIZE, k)
         distances = final_states.current_distance
+        num_inferences = final_states.n_inferences
 
         # Calculate stats per individual across their k trials (axis=1)
         mean_dist_per_ind = jnp.mean(distances, axis=1) # Shape: (POPULATION_SIZE,)
@@ -39,11 +40,15 @@ class WandbEvosaxLogger:
         max_dist_per_ind = jnp.max(distances, axis=1)   # Shape: (POPULATION_SIZE,)
         std_dist_per_ind = jnp.std(distances, axis=1)   # Shape: (POPULATION_SIZE,)
 
+        mean_num_inferences = jnp.mean(num_inferences, axis=1)
+
         # Calculate the mean of these per-individual stats across the population (axis=0)
         mean_mean_dist = float(jnp.mean(mean_dist_per_ind))
         mean_min_dist = float(jnp.mean(min_dist_per_ind))
         mean_max_dist = float(jnp.mean(max_dist_per_ind))
         mean_std_dist = float(jnp.mean(std_dist_per_ind))
+
+        mean_mean_num_inferences = float(jnp.mean(mean_num_inferences))
 
         # Overall min distance across all trials (as before, but explicit)
         overall_min_dist = float(jnp.min(distances)) # Operates on flattened (POP_SIZE * k)
@@ -72,6 +77,7 @@ class WandbEvosaxLogger:
 
             # Population Fitness Stats (Mean performance per individual)
             "Generation/Mean_Fitness": mean_fitness,
+            "Generation/Mean_Mean_Num_Inferences": mean_mean_num_inferences,
             "Generation/Median_Fitness": median_fitness,
             "Generation/Std_Fitness": std_fitness,
             "Generation/Max_Fitness": max_fitness, # Max of the mean performances

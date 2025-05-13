@@ -50,6 +50,8 @@ if __name__ == '__main__':
     start_sim_time = time.time()
     while not sim_state.terminated and not sim_state.truncated:
         sim_state = evaluator.simulation_single_step_logic(sim_state)
+        if step_count % 100 == 0:
+            print(sim_state.env_state.observations['joint_position'])
         frame = evaluator.env.render(state=sim_state.env_state)
         processed_frame = post_render(frame, environment_configuration=evaluator.env.environment_configuration)
         frames.append(jnp.array(processed_frame))
