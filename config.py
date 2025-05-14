@@ -33,7 +33,7 @@ morphology_spec = default_brittle_star_morphology_specification(
 )
 
 arena_config = AquariumArenaConfiguration(
-    size=(2, 2), # Example size, adjust if needed
+    size=(4, 4), # Example size, adjust if needed
     sand_ground_color=False,
     attach_target=True,
     wall_height=1.5,
