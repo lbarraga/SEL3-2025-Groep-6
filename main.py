@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 
 from SimulationState import SimulationState
-from brittle_star_environment import EpisodeEvaluator, calculate_direction, get_joint_positions
+from brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
 from config import (
     NUM_ARMS,
     NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, NUM_STEPS_PER_INFERENCE
@@ -22,11 +22,11 @@ def infer_model(path: str, rng: jnp.ndarray, state: SimulationState):
     # Load model parameters from file
     num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
     model = CPGController(num_outputs=num_cpg_params_to_generate)
-    dummy_input = jnp.zeros((1, 32))
+    dummy_input = jnp.zeros((1, 31))
     example_params_tree = model.init(rng, dummy_input)['params']
     model_params = load_model_params(path, example_params_tree)
 
-    direction_to_target = calculate_direction(state)
+    direction_to_target = jnp.array([calculate_relative_direction(state)])
     joint_positions = get_joint_positions(state)
     nn_input = jnp.concatenate([direction_to_target, joint_positions])
     return model.apply({'params': model_params}, nn_input)
@@ -37,12 +37,12 @@ if __name__ == '__main__':
     master_key = jax.random.PRNGKey(SEED)
     rng_init, rng_env_reset, rng_cpg_reset = jax.random.split(master_key, 3)
 
-    # calculate direction to target
-    direction = TARGET_POS / jnp.linalg.norm(TARGET_POS)
 
     evaluator = EpisodeEvaluator()
     sim_state = evaluator.create_initial_state(rng=rng_env_reset, target_pos=target_pos_3d)
 
+    # calculate direction to target
+    direction = calculate_relative_direction(sim_state)
 
 
     frames = []

@@ -23,9 +23,12 @@ def sample_random_target_pos(rng_single):
     target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
     return target_pos
 
-def calculate_direction(state: SimulationState) -> jnp.ndarray:
+def calculate_relative_direction(state: SimulationState) -> jnp.ndarray:
     """Calculates the normalized direction vector from the origin to the target position."""
-    return state.env_state.observations["unit_xy_direction_to_target"]
+    dir_to_target = state.env_state.observations["unit_xy_direction_to_target"]
+    angle_to_target = jnp.atan2(dir_to_target[1], dir_to_target[0])
+    disk_rotation = state.env_state.observations["disk_rotation"][2] # rotation around z-axis
+    return disk_rotation - angle_to_target
 
 def get_joint_positions(env: SimulationState):
     """Extracts joint positions from the environment state."""
@@ -109,7 +112,7 @@ class EpisodeEvaluator:
             initial_state_at_inference, num_inferences_done = loop_vars
 
             # inputs to neural network
-            direction = calculate_direction(initial_state_at_inference)
+            direction = jnp.array([calculate_relative_direction(initial_state_at_inference)])
             joint_positions = get_joint_positions(initial_state_at_inference)
             nn_input = jnp.concatenate([direction, joint_positions])
 

@@ -24,7 +24,7 @@ model = CPGController(num_outputs=num_cpg_params_to_generate)
 
 
 num_joint_positions = NUM_OSCILLATORS_PER_ARM * NUM_ARMS * NUM_SEGMENTS_PER_ARM
-dummy_input = jnp.zeros((1, 2 + num_joint_positions))
+dummy_input = jnp.zeros((1, 1 + num_joint_positions)) # +1 for relative direction to target
 initial_model_params_tree = model.init(model_init_rng, dummy_input)['params']
 flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
 num_model_params = flat_initial_model_params.shape[0]
