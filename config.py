@@ -41,7 +41,7 @@ arena_config = AquariumArenaConfiguration(
 )
 
 env_config = BrittleStarDirectedLocomotionEnvironmentConfiguration(
-    target_distance=1.2, # Example, adjust if needed
+    target_distance=2.0, # Example, adjust if needed
     joint_randomization_noise_scale=1.0,
     render_mode="rgb_array", # Not used in pure functions, but part of config
     simulation_time=20, # Example, adjust if needed
