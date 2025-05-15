@@ -95,7 +95,5 @@ while step < 500 and not terminated and not truncated:
     frames.append(env.render())
     step += 1
 
-
-
 # Save video of trained agent
-show_video(images=frames, sim_time=100, path="trained_agent.mp4")
+show_video(images=frames, sim_time=100, path="../trained_agent.mp4")

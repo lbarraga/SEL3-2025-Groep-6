@@ -9,7 +9,7 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from SimulationState import create_initial_simulation_state, SimulationState
 from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, create_environment
-from cpg import  CPGState
+from cpg import CPGState
 
 
 def reset_cpg(rng: chex.PRNGKey) -> CPGState:

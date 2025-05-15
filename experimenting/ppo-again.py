@@ -1,10 +1,10 @@
 import wandb
 from stable_baselines3 import PPO
 
-from brittle_star_gym_environment import BrittleStarGymEnv
 from jax_env import JAXVecEnv
-from config import MAX_STEPS_PER_PPO_EPISODE  # Assuming you have this
-from render import show_video  # Assuming you have this
+from config import MAX_STEPS_PER_PPO_EPISODE
+from ppo.brittle_star_gym_environment import BrittleStarGymEnv
+from render import show_video
 from wandb.integration.sb3 import WandbCallback
 
 WANDB_PROJECT_NAME = "ppo_brittle_star_jaxenv"
@@ -18,7 +18,7 @@ N_EPOCHS = 10
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_RANGE = 0.2
-DEVICE = "cpu"  # Or "cuda" if you have it set up
+DEVICE = "cpu"  # Or "cuda"
 POLICY_KWARGS = dict(net_arch=[16, 16])
 TOTAL_TIMESTEPS = 250_000
 
@@ -82,7 +82,6 @@ truncated = False
 step = 0
 
 action, _states = trained_model.predict(observation, deterministic=True)
-# Assuming your BrittleStarGymEnv's step takes action directly for single env
 next_observation, reward, terminated, truncated, info = env.step(action)
 observation = next_observation
 
