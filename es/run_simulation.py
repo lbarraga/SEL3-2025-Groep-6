@@ -13,7 +13,7 @@ from nn import CPGController, load_model_params
 from render import show_video, post_render
 
 FIXED_OMEGA = 4.5
-MODEL_FILENAME = "final_model_gen500.msgpack" # Specify model file path here
+MODEL_FILENAME = "../final_model_gen500.msgpack"  # Specify model file path here
 TARGET_POS = jnp.array([3, -1])
 
 
