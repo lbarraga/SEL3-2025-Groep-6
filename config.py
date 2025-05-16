@@ -17,10 +17,8 @@ TARGET_REACHED_BONUS = 1.0
 MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
 
 NUM_INFERENCES_PER_TRIAL = 5 # Number of inferences per trial
-NUM_STEPS_PER_INFERENCE = 30
 
 MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
-NO_PROGRESS_THRESHOLD = 20 # Steps without improvement before truncating
 
 DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])
 NUM_EVALUATIONS_PER_INDIVIDUAL = 3

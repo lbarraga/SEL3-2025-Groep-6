@@ -6,8 +6,7 @@ from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
 from brittle_star_environment import create_evaluation_fn, NUM_EVALUATIONS_PER_INDIVIDUAL
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, \
-    TARGET_SAMPLING_RADIUS, NUM_SEGMENTS_PER_ARM
+from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS, NUM_SEGMENTS_PER_ARM
 from nn import CPGController
 from wandb_evosax_logger import WandbEvosaxLogger
 
@@ -22,9 +21,8 @@ rng, model_init_rng = jax.random.split(master_key)
 num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
 model = CPGController(num_outputs=num_cpg_params_to_generate)
 
-
 num_joint_positions = NUM_OSCILLATORS_PER_ARM * NUM_ARMS * NUM_SEGMENTS_PER_ARM
-dummy_input = jnp.zeros((1, 1 + num_joint_positions)) # +1 for relative direction to target
+dummy_input = jnp.zeros((1, 1 + num_joint_positions))  # +1 for relative direction to target in radials
 initial_model_params_tree = model.init(model_init_rng, dummy_input)['params']
 flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
 num_model_params = flat_initial_model_params.shape[0]

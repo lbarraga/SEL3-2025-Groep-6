@@ -6,11 +6,9 @@ import jax.numpy as jnp
 
 from SimulationState import SimulationState, create_initial_simulation_state
 from config import (
-    NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM,
-    MAX_STEPS_PER_EPISODE, NO_PROGRESS_THRESHOLD,
-    create_environment, CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS,
-    TARGET_SAMPLING_RADIUS, FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL, NUM_INFERENCES_PER_TRIAL,
-    NUM_STEPS_PER_INFERENCE  # Add new imports
+    NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, MAX_STEPS_PER_EPISODE, create_environment,
+    CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS, TARGET_SAMPLING_RADIUS,
+    FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL, NUM_INFERENCES_PER_TRIAL# Add new imports
 )
 from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
 from nn import CPGController
@@ -23,16 +21,19 @@ def sample_random_target_pos(rng_single):
     target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
     return target_pos
 
+
 def calculate_relative_direction(state: SimulationState) -> jnp.ndarray:
     """Calculates the normalized direction vector from the origin to the target position."""
     dir_to_target = state.env_state.observations["unit_xy_direction_to_target"]
     angle_to_target = jnp.atan2(dir_to_target[1], dir_to_target[0])
-    disk_rotation = state.env_state.observations["disk_rotation"][2] # rotation around z-axis
+    disk_rotation = state.env_state.observations["disk_rotation"][2]  # rotation around z-axis
     return disk_rotation - angle_to_target
+
 
 def get_joint_positions(env: SimulationState):
     """Extracts joint positions from the environment state."""
     return env.env_state.observations["joint_position"]
+
 
 class EpisodeEvaluator:
     """Encapsulates environment, CPG, and logic for evaluating episodes."""
@@ -76,9 +77,6 @@ class EpisodeEvaluator:
         # Terminate if internal env terminates or if the distance to the target is small enough
         terminated = (current_distance < CLOSE_ENOUGH_DISTANCE) | new_env_state.terminated
 
-        # Truncate if no progress has been made for a certain number of steps
-        truncated = new_env_state.truncated # | ((steps_taken - last_progress_step) > NO_PROGRESS_THRESHOLD)
-
         new_state = state.replace(
             env_state=new_env_state,
             cpg_state=new_cpg_state,
@@ -87,7 +85,7 @@ class EpisodeEvaluator:
             current_distance=current_distance,
             last_progress_step=last_progress_step,
             terminated=terminated,
-            truncated=truncated,
+            truncated=new_env_state.truncated,
         )
         return new_state
 
@@ -100,7 +98,6 @@ class EpisodeEvaluator:
                          ) -> typing.Tuple[jnp.ndarray, SimulationState]:
         """Runs a single trial with multiple CPG inferences, using global constants."""
         initial_state = self.create_initial_state(rng=rng, target_pos=initial_target_pos)
-
 
         def inference_loop_cond_fn(loop_vars):
             current_sim_state, num_inferences_done = loop_vars
@@ -124,7 +121,7 @@ class EpisodeEvaluator:
 
             initial_inner_loop_state = sim_state_after_modulation
 
-            target_steps_for_this_inference_period = sim_state_after_modulation.steps_taken + NUM_STEPS_PER_INFERENCE
+            target_steps_for_this_inference_period = sim_state_after_modulation.steps_taken + (MAX_STEPS_PER_EPISODE / NUM_INFERENCES_PER_TRIAL)
 
             def inner_sim_loop_cond_fn(inner_loop_sim_state: SimulationState) -> bool:
                 return ((~inner_loop_sim_state.terminated &
@@ -180,7 +177,6 @@ class EpisodeEvaluator:
 
         return create_initial_simulation_state(initial_env_state, initial_cpg_state)
 
-
     @partial(jax.jit, static_argnames=['self'])
     def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray) -> CPGState:
         """Modulates the CPG state with given parameters."""
@@ -211,10 +207,12 @@ def calculate_final_reward(initial_state: SimulationState, final_state: Simulati
 
     return improvement + target_reached_bonus + time_bonus
 
+
 EvaluationFn = typing.Callable[
-    [jax.Array, jax.Array, CPGController], # input: rng_batch, flat_model_params_batch, model_obj
-    typing.Tuple[jax.Array, typing.Any] # output: fitness (mean rewards), final_states_batch
+    [jax.Array, jax.Array, CPGController],  # input: rng_batch, flat_model_params_batch, model_obj
+    typing.Tuple[jax.Array, typing.Any]  # output: fitness (mean rewards), final_states_batch
 ]
+
 
 # Update create_evaluation_fn
 def create_evaluation_fn(model_obj: CPGController, unravel_fn: typing.Callable) -> EvaluationFn:
