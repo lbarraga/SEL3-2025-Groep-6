@@ -7,7 +7,7 @@ import optuna
 from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
-from brittle_star_environment import create_evaluation_fn
+from es.brittle_star_environment import create_evaluation_fn
 from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
 from nn import CPGController
 from util import generate_cpg_for_eval, print_optuna_results

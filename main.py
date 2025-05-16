@@ -4,10 +4,10 @@ import jax
 import jax.numpy as jnp
 
 from SimulationState import SimulationState
-from brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
+from es.brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
 from config import (
     NUM_ARMS,
-    NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, NUM_STEPS_PER_INFERENCE
+    NUM_OSCILLATORS_PER_ARM, SEED, MAX_STEPS_PER_EPISODE, NUM_INFERENCES_PER_TRIAL
 )
 from nn import CPGController, load_model_params
 from render import show_video, post_render
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     step_count = 0
     start_sim_time = time.time()
     while not sim_state.terminated and not sim_state.truncated:
-        if step_count % NUM_STEPS_PER_INFERENCE == 0:
+        if step_count % (MAX_STEPS_PER_EPISODE / NUM_INFERENCES_PER_TRIAL) == 0:
             # modulate CPG parameters
             generated_rx_params = infer_model(MODEL_FILENAME, rng_init, sim_state)
             cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
