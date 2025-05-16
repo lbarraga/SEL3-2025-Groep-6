@@ -18,11 +18,11 @@ MAXIMUM_TIME_BONUS = 1.0 # Bonus for reaching the target in less than max time
 
 NUM_INFERENCES_PER_TRIAL = 5 # Number of inferences per trial
 
-MAX_STEPS_PER_EPISODE = 300 # Max steps in the inner loop per evaluation
+MAX_STEPS_PER_EPISODE = 150 # Max steps in the inner loop per evaluation
 
 DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])
 NUM_EVALUATIONS_PER_INDIVIDUAL = 3
-TARGET_SAMPLING_RADIUS = 1
+TARGET_SAMPLING_RADIUS = 2
 FIXED_OMEGA = 4.5
 
 morphology_spec = default_brittle_star_morphology_specification(
@@ -40,7 +40,7 @@ arena_config = AquariumArenaConfiguration(
 
 env_config = BrittleStarDirectedLocomotionEnvironmentConfiguration(
     target_distance=2.0, # Example, adjust if needed
-    joint_randomization_noise_scale=1.0,
+    joint_randomization_noise_scale=5.0,
     render_mode="rgb_array", # Not used in pure functions, but part of config
     simulation_time=20, # Example, adjust if needed
     num_physics_steps_per_control_step=10, # Example, adjust if needed

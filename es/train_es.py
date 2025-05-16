@@ -10,8 +10,8 @@ from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_
 from nn import CPGController
 from wandb_evosax_logger import WandbEvosaxLogger
 
-POPULATION_SIZE = 300
-NUM_GENERATIONS = 500
+POPULATION_SIZE = 500
+NUM_GENERATIONS = 300
 SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "k_eval_multiple_inference_joint_positions"  # Updated project name
 
