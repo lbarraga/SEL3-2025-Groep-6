@@ -3,6 +3,14 @@ import time
 import jax
 import jax.numpy as jnp
 
+# THIS IS NEEDED TO BE ABLE TO USE MODULES IN PARENT DIRECTORY
+import sys
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
+
 from SimulationState import SimulationState
 from es.brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
 from config import (
@@ -13,7 +21,8 @@ from nn import CPGController, load_model_params
 from render import show_video, post_render
 
 FIXED_OMEGA = 4.5
-MODEL_FILENAME = "../final_model_gen500.msgpack"  # Specify model file path here
+# WRITE filename relative to parent directory
+MODEL_FILENAME = "final_model_gen500.msgpack"  # Specify model file path here
 TARGET_POS = jnp.array([3, -1])
 
 
