@@ -4,6 +4,13 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+# THIS IS NEEDED TO BE ABLE TO USE MODULES IN PARENT DIRECTORY
+import sys
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 from SimulationState import SimulationState, create_initial_simulation_state
 from config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, MAX_STEPS_PER_EPISODE, create_environment,
