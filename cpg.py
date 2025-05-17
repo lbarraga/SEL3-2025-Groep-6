@@ -158,9 +158,7 @@ def modulate_cpg(
 ) -> CPGState:
 
     # Use rescale function for both X and R
-    debug.print("new_X: {}", new_X)
     X = rescale_array(new_X, max_joint_limit)
-    debug.print("X: {}", X)
     R = rescale_array(new_R, max_joint_limit)
     omegas = jnp.broadcast_to(new_omega, R.shape)
 
