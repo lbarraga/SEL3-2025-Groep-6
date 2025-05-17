@@ -4,6 +4,7 @@ from typing import Callable
 import chex
 import jax
 import jax.numpy as jnp
+from jax import debug
 from flax import struct
 
 def euler_solver(
@@ -156,12 +157,39 @@ def modulate_cpg(
         max_joint_limit: float
 ) -> CPGState:
 
-    X = jnp.clip(new_X, -max_joint_limit, max_joint_limit)
-    R = jnp.clip(new_R, -max_joint_limit, max_joint_limit)
+    # Use rescale function for both X and R
+    debug.print("new_X: {}", new_X)
+    X = rescale_array(new_X, max_joint_limit)
+    debug.print("X: {}", X)
+    R = rescale_array(new_R, max_joint_limit)
     omegas = jnp.broadcast_to(new_omega, R.shape)
 
-    # Return the updated CPGState with modulated values
+    # Return the updated CPGState with rescaled values
     return cpg_state.replace(R=R, X=X, omegas=omegas)
+
+@jax.jit
+def rescale_array(arr: jnp.ndarray, limit: float) -> jnp.ndarray:
+    """
+    Rescales an array to fit within [-limit, limit] while preserving relative values.
+    If the array already fits within the limits, it's returned unchanged.
+    """
+    arr_min = jnp.min(arr)
+    arr_max = jnp.max(arr)
+
+    # Calculate the range of the input array
+    arr_range = arr_max - arr_min
+
+    # Only rescale if the array exceeds the limits
+    needs_rescaling = (arr_min < -limit) | (arr_max > limit)
+
+    # Avoid division by zero if all values are the same
+    safe_range = jnp.maximum(arr_range, 1e-6)
+
+    # Calculate the rescaled array
+    rescaled = -limit + (arr - arr_min) * (2 * limit) / safe_range
+
+    # Return original array if it's within limits, otherwise return rescaled array
+    return jnp.where(needs_rescaling, rescaled, arr)
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2, 3))
