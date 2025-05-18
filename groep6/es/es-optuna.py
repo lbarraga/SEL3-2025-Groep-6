@@ -7,10 +7,10 @@ import optuna
 from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 from brittle_star_environment import create_evaluation_fn
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
-from nn import CPGController
-from util import generate_cpg_for_eval, print_optuna_results
-from wandb_evosax_logger import WandbEvosaxLogger
+from groep6.config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
+from groep6.nn import CPGController
+from groep6.util import generate_cpg_for_eval, print_optuna_results
+from groep6.wandb_evosax_logger import WandbEvosaxLogger
 
 # reduced number of generations for optuna
 NUM_GENERATIONS = 500

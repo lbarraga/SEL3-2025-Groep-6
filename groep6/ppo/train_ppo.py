@@ -4,8 +4,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
 from brittle_star_gym_environment import BrittleStarGymEnv
-from config import MAX_STEPS_PER_PPO_EPISODE
-from render import show_video
+from groep6.config import MAX_STEPS_PER_PPO_EPISODE
+from groep6.render import show_video
 from wandb.integration.sb3 import WandbCallback
 
 WANDB_PROJECT_NAME = "ppo_brittle_star_gym_bounds"

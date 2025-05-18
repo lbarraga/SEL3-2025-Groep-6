@@ -1,6 +1,7 @@
 import jax.numpy as jnp
-from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
 
+
+from biorobot.brittle_star.environment.directed_locomotion.dual import BrittleStarDirectedLocomotionEnvironment
 from biorobot.brittle_star.environment.directed_locomotion.shared import \
     BrittleStarDirectedLocomotionEnvironmentConfiguration
 from biorobot.brittle_star.mjcf.arena.aquarium import AquariumArenaConfiguration, MJCFAquariumArena

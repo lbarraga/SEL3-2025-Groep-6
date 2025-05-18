@@ -4,21 +4,14 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-# THIS IS NEEDED TO BE ABLE TO USE MODULES IN PARENT DIRECTORY
-import sys
-import os
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
-
-from SimulationState import SimulationState, create_initial_simulation_state
-from config import (
+from groep6.SimulationState import SimulationState, create_initial_simulation_state
+from groep6.config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, MAX_STEPS_PER_EPISODE, create_environment,
     CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS, TARGET_SAMPLING_RADIUS,
     FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL, NUM_INFERENCES_PER_TRIAL# Add new imports
 )
-from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
-from nn import CPGController
+from groep6.cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+from groep6.nn import CPGController
 
 
 def sample_random_target_pos(rng_single):

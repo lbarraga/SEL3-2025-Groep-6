@@ -8,14 +8,14 @@ import numpy as np
 from gymnasium.spaces import Box
 from jax import Array
 
-from config import (
+from groep6.config import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, CONTROL_TIMESTEP,
     create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_PPO_EPISODE,
     TARGET_REACHED_BONUS, FIXED_OMEGA
 )
-from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
-from SimulationState import SimulationState, create_initial_simulation_state
-from util import calculate_direction, sample_random_target_pos, normalize_corner
+from groep6.cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+from groep6.SimulationState import SimulationState, create_initial_simulation_state
+from groep6.util import calculate_direction, sample_random_target_pos, normalize_corner
 
 
 class BrittleStarGymEnv(gym.Env):
@@ -239,7 +239,7 @@ class BrittleStarGymEnv(gym.Env):
 
     def render(self):
         """Renders a single frame of the environment."""
-        from render import post_render
+        from groep6.render import post_render
 
         frame = self.env.render(state=self.sim_state.env_state)
         processed_frame = post_render(frame, self.env.environment_configuration)

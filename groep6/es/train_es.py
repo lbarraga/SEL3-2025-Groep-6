@@ -6,9 +6,9 @@ from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 
 from brittle_star_environment import create_evaluation_fn, NUM_EVALUATIONS_PER_INDIVIDUAL
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS, NUM_SEGMENTS_PER_ARM
-from nn import CPGController
-from wandb_evosax_logger import WandbEvosaxLogger
+from groep6.config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS, NUM_SEGMENTS_PER_ARM
+from groep6.nn import CPGController
+from groep6.wandb_evosax_logger import WandbEvosaxLogger
 
 POPULATION_SIZE = 250
 NUM_GENERATIONS = 250

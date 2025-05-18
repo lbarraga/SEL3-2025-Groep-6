@@ -3,26 +3,17 @@ import time
 import jax
 import jax.numpy as jnp
 
-# THIS IS NEEDED TO BE ABLE TO USE MODULES IN PARENT DIRECTORY
-import sys
-import os
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
-
-
-from SimulationState import SimulationState
-from es.brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
-from config import (
+from groep6.SimulationState import SimulationState
+from groep6.es.brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
+from groep6.config import (
     NUM_ARMS,
     NUM_OSCILLATORS_PER_ARM, SEED, MAX_STEPS_PER_EPISODE, NUM_INFERENCES_PER_TRIAL
 )
-from nn import CPGController, load_model_params
-from render import show_video, post_render
+from groep6.nn import CPGController, load_model_params
+from groep6.render import show_video, post_render
 
 FIXED_OMEGA = 4.5
-# WRITE filename relative to parent directory
-MODEL_FILENAME = "final_model_gen500.msgpack"  # Specify model file path here
+MODEL_FILENAME = "final_model_gen300.msgpack"  # Specify model file path here
 TARGET_POS = jnp.array([3, -1])
 
 
@@ -46,13 +37,11 @@ if __name__ == '__main__':
     master_key = jax.random.PRNGKey(SEED)
     rng_init, rng_env_reset, rng_cpg_reset = jax.random.split(master_key, 3)
 
-
     evaluator = EpisodeEvaluator()
     sim_state = evaluator.create_initial_state(rng=rng_env_reset, target_pos=target_pos_3d)
 
     # calculate direction to target
     direction = calculate_relative_direction(sim_state)
-
 
     frames = []
     step_count = 0
