@@ -39,7 +39,7 @@ poetry install --no-root
 
 ## Train / Run
 
-Export the weights and biases api key, to log training results:
+Export the Weights and Biases api key, to log training results:
 
 ```bash
 export WANDB_API_KEY=<your_api_key>
