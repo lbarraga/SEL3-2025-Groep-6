@@ -58,7 +58,7 @@ if __name__ == '__main__':
     step_count = 0
     start_sim_time = time.time()
     while not sim_state.terminated and not sim_state.truncated:
-        if step_count % (MAX_STEPS_PER_EPISODE // NUM_INFERENCES_PER_TRIAL) == 0:
+        if step_count % (MAX_STEPS_PER_EPISODE / NUM_INFERENCES_PER_TRIAL) == 0:
             # modulate CPG parameters
             generated_rx_params = infer_model(MODEL_FILENAME, rng_init, sim_state)
             cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
