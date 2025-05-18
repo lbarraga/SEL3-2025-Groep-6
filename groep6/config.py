@@ -24,7 +24,7 @@ NO_PROGRESS_THRESHOLD = 40 # Steps without improvement before truncating
 
 MAX_STEPS_PER_EPISODE = 150 # Max steps in the inner loop per evaluation
 
-DEFAULT_TARGET_POSITION = jnp.array([1.25, 0.75, 0.0])
+VIDEO_TARGET_POSITION = jnp.array([3, -1])
 NUM_EVALUATIONS_PER_INDIVIDUAL = 3
 TARGET_SAMPLING_RADIUS = 2
 FIXED_OMEGA = 4.5

@@ -15,47 +15,45 @@ NUM_GENERATIONS = 250
 SIGMA_INIT = 0.1
 WANDB_PROJECT_NAME = "k_eval_multiple_inference_joint_positions"  # Updated project name
 
-master_key = jax.random.PRNGKey(SEED)
-rng, model_init_rng = jax.random.split(master_key)
+def train_es(num_generations: int = NUM_GENERATIONS, population_size: int = POPULATION_SIZE, seed: int = SEED, sigma_init: float = SIGMA_INIT):
+    master_key = jax.random.PRNGKey(seed)
+    rng, model_init_rng = jax.random.split(master_key)
 
-num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
-model = CPGController(num_outputs=num_cpg_params_to_generate)
+    num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
+    model = CPGController(num_outputs=num_cpg_params_to_generate)
 
-num_joint_positions = NUM_OSCILLATORS_PER_ARM * NUM_ARMS * NUM_SEGMENTS_PER_ARM
-dummy_input = jnp.zeros((1, 1 + num_joint_positions))  # +1 for relative direction to target in radials
-initial_model_params_tree = model.init(model_init_rng, dummy_input)['params']
-flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
-num_model_params = flat_initial_model_params.shape[0]
+    num_joint_positions = NUM_OSCILLATORS_PER_ARM * NUM_ARMS * NUM_SEGMENTS_PER_ARM
+    dummy_input = jnp.zeros((1, 1 + num_joint_positions))  # +1 for relative direction to target in radials
+    initial_model_params_tree = model.init(model_init_rng, dummy_input)['params']
+    flat_initial_model_params, unravel_fn = ravel_pytree(initial_model_params_tree)
+    num_model_params = flat_initial_model_params.shape[0]
 
-logger = WandbEvosaxLogger(
-    project_name=WANDB_PROJECT_NAME,
-    config={
-        "population_size": POPULATION_SIZE,
-        "num_generations": NUM_GENERATIONS,
-        "sigma_init": SIGMA_INIT,
-        "seed": SEED,
-        "num_model_params": num_model_params,
-        "fixed_omega": FIXED_OMEGA,
-        "target_sampling_radius": TARGET_SAMPLING_RADIUS,
-        "nn_hidden_dim": f"{model.hidden_dim1} x {model.hidden_dim2}",
-        "num_evaluations_per_individual": NUM_EVALUATIONS_PER_INDIVIDUAL,
-    }
-)
+    logger = WandbEvosaxLogger(
+        project_name=WANDB_PROJECT_NAME,
+        config={
+            "population_size": population_size,
+            "num_generations": num_generations,
+            "sigma_init": sigma_init,
+            "seed": seed,
+            "num_model_params": num_model_params,
+            "fixed_omega": FIXED_OMEGA,
+            "target_sampling_radius": TARGET_SAMPLING_RADIUS,
+            "nn_hidden_dim": f"{model.hidden_dim1} x {model.hidden_dim2}",
+            "num_evaluations_per_individual": NUM_EVALUATIONS_PER_INDIVIDUAL,
+        }
+    )
 
-strategy = OpenES(popsize=POPULATION_SIZE, num_dims=num_model_params, sigma_init=SIGMA_INIT, maximize=True)
-es_params = strategy.default_params
-es_state = strategy.initialize(rng, es_params, init_mean=flat_initial_model_params)
+    strategy = OpenES(popsize=population_size, num_dims=num_model_params, sigma_init=sigma_init, maximize=True)
+    es_params = strategy.default_params
+    es_state = strategy.initialize(rng, es_params, init_mean=flat_initial_model_params)
 
-evaluate_batch_fn = create_evaluation_fn(model_obj=model, unravel_fn=unravel_fn)
+    evaluate_batch_fn = create_evaluation_fn(model_obj=model, unravel_fn=unravel_fn)
 
-try:
-    # generation = 0
-    # while True:
-    for generation in range(NUM_GENERATIONS):
+    for generation in range(num_generations):
         if generation % 100 == 0:
             logger.log_model_artifact(
                 parameters=unravel_fn(es_state.mean),
-                filename=f"final_model_gen{NUM_GENERATIONS}.msgpack",
+                filename=f"final_model_gen{num_generations}.msgpack",
                 artifact_name=f'{WANDB_PROJECT_NAME}-model',
                 artifact_type='model'
             )
@@ -66,7 +64,7 @@ try:
         # Ask for new network parameters
         flat_model_params_pop, es_state = strategy.ask(rng_ask, es_state, es_params)  # Changed variable name for clarity
 
-        rng_eval_batch = jax.random.split(rng_eval, POPULATION_SIZE)
+        rng_eval_batch = jax.random.split(rng_eval, population_size)
         fitness, final_states_batch = evaluate_batch_fn(rng_eval_batch, flat_model_params_pop)  # Pass network params
 
         # Tell the strategy the mean fitness results
@@ -83,15 +81,30 @@ try:
         )
         # generation += 1
 
-except KeyboardInterrupt:
-    print("Training interrupted. Saving model...")
+    logger.log_model_artifact(
+        parameters=unravel_fn(es_state.mean),
+        filename=f"final_model_gen{num_generations}.msgpack",
+        artifact_name=f'{WANDB_PROJECT_NAME}-model',
+        artifact_type='model'
+    )
 
-logger.log_model_artifact(
-    parameters=unravel_fn(es_state.mean),
-    filename=f"final_model_gen{NUM_GENERATIONS}.msgpack",
-    artifact_name=f'{WANDB_PROJECT_NAME}-model',
-    artifact_type='model'
-)
+    logger.log_summary(es_state)
+    logger.finish()
 
-logger.log_summary(es_state)
-logger.finish()
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train the model using evolutionary strategy")
+    parser.add_argument("--num_generations", type=int, default=NUM_GENERATIONS, help="Number of generations to train for")
+    parser.add_argument("--population_size", type=int, default=POPULATION_SIZE, help="Population size for the evolutionary strategy")
+    parser.add_argument("--seed", type=int, default=SEED, help="Random seed for reproducibility")
+    parser.add_argument("--sigma_init", type=float, default=SIGMA_INIT, help="Initial standard deviation for the evolutionary strategy")
+
+    args = parser.parse_args()
+
+    train_es(
+        num_generations=args.num_generations,
+        population_size=args.population_size,
+        seed=args.seed,
+        sigma_init=args.sigma_init
+    )
