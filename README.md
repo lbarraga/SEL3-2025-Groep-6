@@ -10,17 +10,20 @@ Generators (CPGs) to evolve natural movement in a simulated brittle star. By mim
 to develop simple yet robust control strategies that could inspire safer and more adaptable robotic
 systems.
 
+This project can be used both as a CLI tool or as a library for in your own code.
 
 ## Code layout
 
-Shared code is at the top level, and ES / PPO specific code are in their own sub directories.
+All code is in the `groep6` package.
+Shared code is at the top level of this package.
+This package contains two sub packages for the two different learning methods. They contain the training and simulation code for the respective methods.
 
-The shared parameters can be adjusted in `config.py`, while method specific parameters can be
-adjusted in their respective files. (E.g. to adjust training `POPULATION_SIZE` for ES it would be in `train_es.py`)
+We have set some default values in the `defaults.py` files. These can be overwritten both by calling a function
+with different parameters or by passing different parameters in the command line.
 
 
 ## Setup/Env
-> This guide is made for a machine running Linux.
+> This guide is made for a machine running on Linux.
 
 Create and activate a venv with Python3.11:
 
@@ -29,41 +32,49 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
+Make sure you have Poetry installed otherwise follow the instructions [here](https://python-poetry.org/docs/#installation).
 Install Poetry dependencies.
 
 ```bash
-poetry install --no-root
+poetry install
 ```
 > If having problems with poetry install, try `poetry lock` and then try again.
 
 
 ## Train / Run
-
-Export the Weights and Biases api key, to log training results:
+### CLI
+Export the Weights and Biases api key to log training results:
 
 ```bash
 export WANDB_API_KEY=<your_api_key>
 ```
 
-To train the ES model run:
+To train the ES (similarly for PPO) model, run: 
 
 ```bash
-python es/train_es.py
+python groep6/es/train_es.py # use "--help" for options
 ```
-Similarly for PPO.
 
-
-To view the end results of an es trained model,
-specify the model in `MODEL_FILENAME` variable and run:
+To view the results of a trained model.
 
 ```bash
-python es/run_simulation.py
+python groep6/es/run_simulation.py # use "--help" for options
 ```
 
-While the ppo training will always create a video when done training.
-To generate a video of a previously trained PPO model, change the training
-code for the loading code that is currently commented out.
+### Python
 
+Example for ES, but similar for PPO:
+
+```python
+from groep6.es.train_es import train_es
+from groep6.es.run_simulation import create_video
+
+# to train a new model
+train_es() # add / change any desired parameters here
+
+# to run a simulation with a trained model stored at MODEL_FILE (default saving location of train_es)
+create_video() # add / change any desired parameters here
+```
 
 Developed by:
 - [Lukas Barragan Torres](https://github.com/lbarraga)

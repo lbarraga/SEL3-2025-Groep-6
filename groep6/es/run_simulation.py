@@ -9,6 +9,7 @@ from groep6.defaults import (
     NUM_ARMS,
     NUM_OSCILLATORS_PER_ARM, SEED, MAX_STEPS_PER_EPISODE, NUM_INFERENCES_PER_TRIAL, FIXED_OMEGA, VIDEO_TARGET_POSITION
 )
+from groep6.es.defaults import MODEL_FILE
 from groep6.nn import CPGController, load_model_params
 from groep6.render import show_video, post_render
 
@@ -27,7 +28,7 @@ def infer_model(path: str, rng: jnp.ndarray, state: SimulationState):
     return model.apply({'params': model_params}, nn_input)
 
 
-def create_video(model_path: str, target_pos: jnp.ndarray):
+def create_video(model_path: str = MODEL_FILE, target_pos: jnp.ndarray = VIDEO_TARGET_POSITION):
     target_pos_3d = jnp.concatenate([target_pos, jnp.array([0.0])])
     master_key = jax.random.PRNGKey(SEED)
     rng_init, rng_env_reset, rng_cpg_reset = jax.random.split(master_key, 3)
