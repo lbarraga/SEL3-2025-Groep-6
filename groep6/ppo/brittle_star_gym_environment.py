@@ -108,6 +108,7 @@ class BrittleStarGymEnv(gym.Env):
         return jnp.concatenate([self.sim_state.env_state.info["xy_target_position"], jnp.array([0.0])])
 
     def get_disk_rotation(self) -> float:
+        """Get the current disk rotation on the z-axis."""
         return self.sim_state.env_state.observations["disk_rotation"][-1]
 
     def get_joint_positions(self) -> jnp.array:
@@ -144,9 +145,9 @@ class BrittleStarGymEnv(gym.Env):
 
     def _get_info(self):
         return {
-            "distance_to_target": jnp.linalg.norm(
+            "distance_to_target": float(jnp.linalg.norm(
                 self.get_brittle_star_position() - self.get_target_position()
-            ),
+            )),
         }
 
     def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:

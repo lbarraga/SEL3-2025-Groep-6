@@ -1,14 +1,19 @@
 from groep6.config import MAX_STEPS_PER_PPO_EPISODE
-from groep6.ppo.train_ppo import model, env
+from groep6.ppo.brittle_star_gym_environment import BrittleStarGymEnv
+from groep6.ppo.config import make_model
 from groep6.render import show_video
 
 def model_load(model_path: str):
     """Load the PPO model from the specified path."""
+    model = make_model()
     trained_model = model.load(model_path)
     trained_model.device = "cpu"
     return trained_model
 
 def create_video(model_ppo):
+    # Create the environment
+    env = BrittleStarGymEnv()
+
     observation, info = env.reset()
     frames = []
 

@@ -25,7 +25,7 @@ logger = wandb.init(
 )
 
 # Train the agent
-model = make_model(logger=logger)
+model = make_model(logger_id=logger.id)
 trained_model = model.learn(total_timesteps=1_250_000, progress_bar=True,
                             callback=WandbCallback(gradient_save_freq=100, verbose=2))
 trained_model.save("trained_model")

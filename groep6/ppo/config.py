@@ -6,9 +6,6 @@ from groep6.ppo.brittle_star_gym_environment import BrittleStarGymEnv
 
 WANDB_PROJECT_NAME = "ppo_brittle_star_gym_bounds"
 
-# Create the environment
-env = BrittleStarGymEnv()
-
 N_ENVS = 4
 LEARNING_RATE = 3e-4
 N_STEPS = 8
@@ -28,7 +25,7 @@ def make_env():
 
 vec_env = make_vec_env(make_env, n_envs=N_ENVS)
 
-def make_model(logger = None):
+def make_model(logger_id = None):
     model = PPO(
         "MlpPolicy",
         vec_env,
@@ -42,6 +39,6 @@ def make_model(logger = None):
         verbose=0,
         device=DEVICE,  # Use CPU explicitly
         policy_kwargs=POLICY_KWARGS,  # Custom policy architecture
-        tensorboard_log=f"runs/{logger.id}",
+        tensorboard_log=f"runs/{logger_id}",
     )
     return model
