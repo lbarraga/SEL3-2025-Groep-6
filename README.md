@@ -67,7 +67,7 @@ python groep6/ppo/train_ppo.py  # use "--help" for options
 to view the video:
 
 ```bash
-python groep6/ppo/run_simulation.py trained_model.zip # use "--help" for options
+python groep6/ppo/run_simulation.py trained_model.zip  # use "--help" for options
 ```
 
 Developed by:
