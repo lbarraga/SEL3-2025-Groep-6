@@ -12,6 +12,7 @@ class SimulationState:
     best_distance: jnp.ndarray
     current_distance: jnp.ndarray
     steps_taken: jnp.ndarray
+    n_inferences: jnp.ndarray
     last_progress_step: jnp.ndarray
     terminated: jnp.ndarray
     truncated: jnp.ndarray
@@ -30,6 +31,7 @@ def create_initial_simulation_state(env_state, cpg_state):
         best_distance=initial_distance,
         current_distance=initial_distance,
         steps_taken=jnp.array(0, dtype=jnp.int32),
+        n_inferences=jnp.array(0, dtype=jnp.int32),
         last_progress_step=jnp.array(0, dtype=jnp.int32),
         terminated=jnp.array(False),
         truncated=jnp.array(False),

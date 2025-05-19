@@ -8,14 +8,14 @@ import numpy as np
 from gymnasium.spaces import Box
 from jax import Array
 
-from config import (
+from groep6.defaults import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, CONTROL_TIMESTEP,
     create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_PPO_EPISODE,
     TARGET_REACHED_BONUS, FIXED_OMEGA
 )
-from cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
-from SimulationState import SimulationState, create_initial_simulation_state
-from util import calculate_direction, sample_random_target_pos, normalize_corner
+from groep6.cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+from groep6.SimulationState import SimulationState, create_initial_simulation_state
+from groep6.util import calculate_direction, sample_random_target_pos, normalize_corner
 
 
 class BrittleStarGymEnv(gym.Env):
@@ -24,10 +24,10 @@ class BrittleStarGymEnv(gym.Env):
     """
     metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
 
-    def __init__(self, seed=0):
+    def __init__(self, seed: int = 0, target_position: jnp.ndarray = None):
         self.env = create_environment()
         self.cpg = CPG(dt=CONTROL_TIMESTEP)
-        self.max_joint_limit = self.env.action_space.high[0] * 0.25
+        self.max_joint_limit = float(self.env.action_space.high[0] * 0.25)
 
         # Define action space with correct bounds (flattened version)
         # R values (10 values): -1 to 1
@@ -57,7 +57,7 @@ class BrittleStarGymEnv(gym.Env):
 
         self.sim_state = None
 
-        self._initialize()
+        self._initialize(target_position)
 
         # Define observation space
         # disk rotation z, direction (x, y), joint positions, amplitudes
@@ -84,17 +84,20 @@ class BrittleStarGymEnv(gym.Env):
             dtype=np.float64
         )
 
-    def _initialize(self):
+    def _initialize(self, target_position=None):
         """Initialize the simulation state"""
         self._rng, rng = jax.random.split(self._rng)
-        target_pos = sample_random_target_pos(rng)
-        env_state = self._jit_env_reset(rng=rng, target_position=target_pos)
+
+        if target_position is None:
+            target_position = sample_random_target_pos(rng)
+
+        env_state = self._jit_env_reset(rng=rng, target_position=target_position)
         cpg_state = self._jit_cpg_reset(rng=rng)
 
         self.sim_state = create_initial_simulation_state(env_state, cpg_state)
 
     @partial(jax.jit, static_argnames=['self'])
-    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega = FIXED_OMEGA) -> CPGState:
+    def modulate_cpg(self, cpg_state: CPGState, parameters: jnp.ndarray, omega=FIXED_OMEGA) -> CPGState:
         """Modulates the CPG state with given parameters."""
         new_R = parameters[:NUM_ARMS * NUM_OSCILLATORS_PER_ARM]
         new_X = parameters[NUM_ARMS * NUM_OSCILLATORS_PER_ARM:]
@@ -108,6 +111,7 @@ class BrittleStarGymEnv(gym.Env):
         return jnp.concatenate([self.sim_state.env_state.info["xy_target_position"], jnp.array([0.0])])
 
     def get_disk_rotation(self) -> float:
+        """Get the current disk rotation on the z-axis."""
         return self.sim_state.env_state.observations["disk_rotation"][-1]
 
     def get_joint_positions(self) -> jnp.array:
@@ -130,23 +134,22 @@ class BrittleStarGymEnv(gym.Env):
 
         return improvement + target_reached_bonus
 
-    @partial(jax.jit, static_argnames=['self'])
     def get_observation(self):
         """Get the current observations."""
         x, y = calculate_direction(self.get_target_position() - self.get_brittle_star_position())
-        observation = jnp.array([
+        observation = [
             normalize_corner(self.get_disk_rotation()),
             x, y,
             *self.get_joint_positions(),
             *self.sim_state.cpg_state.amplitudes
-        ])
+        ]
         return observation
 
     def _get_info(self):
         return {
-            "distance_to_target": jnp.linalg.norm(
+            "distance_to_target": float(jnp.linalg.norm(
                 self.get_brittle_star_position() - self.get_target_position()
-            ),
+            )),
         }
 
     def reset(self, seed=None, options=None) -> tuple[Array, dict[str, float]]:
@@ -236,10 +239,9 @@ class BrittleStarGymEnv(gym.Env):
         )
         return new_state
 
-
     def render(self):
         """Renders a single frame of the environment."""
-        from render import post_render
+        from groep6.render import post_render
 
         frame = self.env.render(state=self.sim_state.env_state)
         processed_frame = post_render(frame, self.env.environment_configuration)

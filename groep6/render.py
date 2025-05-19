@@ -34,6 +34,6 @@ def show_video(
         path: str | None = None
         ) -> str | None:
     if path:
-        media.write_video(path=path, images=images)
+        media.write_video(path=path, images=images, fps=len(images)//sim_time)
         os.system("xdg-open {}".format(path))
     return media.show_video(images=images, fps=len(images)//sim_time)

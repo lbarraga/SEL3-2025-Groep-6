@@ -6,12 +6,19 @@ import jax.numpy as jnp
 import optuna
 from evosax import OpenES
 from jax.flatten_util import ravel_pytree
-
 from brittle_star_environment import create_evaluation_fn
-from config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
-from nn import CPGController
-from util import generate_cpg_for_eval, print_optuna_results
-from wandb_evosax_logger import WandbEvosaxLogger
+from groep6.defaults import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS, \
+    NUM_EVALUATIONS_PER_INDIVIDUAL
+from groep6.nn import CPGController
+from groep6.util import generate_cpg_for_eval, print_optuna_results
+from groep6.wandb_evosax_logger import WandbEvosaxLogger
+
+###########################################
+# This script tries to optimize the es parameters sigma_init, hidden_dim1 and hidden_dim2.
+# While we did not find a significant improvement in the results for these parameters,
+# We still want to keep this script for future reference.
+###########################################
+
 
 # reduced number of generations for optuna
 NUM_GENERATIONS = 500
@@ -25,7 +32,9 @@ num_cpg_params_to_generate = NUM_ARMS * NUM_OSCILLATORS_PER_ARM * 2
 # here the model will change the hidden dimensions, so don't make in advance, just make the dummy input
 dummy_input = jnp.zeros((1, 2))
 
-evaluate_batch_fn = create_evaluation_fn()
+model = CPGController(num_outputs=num_cpg_params_to_generate)
+
+evaluate_batch_fn = create_evaluation_fn(model_obj=model, unravel_fn=None, num_evaluations=NUM_EVALUATIONS_PER_INDIVIDUAL)
 generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
 search_space = {
