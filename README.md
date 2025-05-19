@@ -55,47 +55,19 @@ python groep6/es/train_es.py # use "--help" for options
 To view the results of a trained model as a video.
 
 ```bash
-python groep6/es/run_simulation.py # use "--help" for options # TODO een werkend commando geven
+python groep6/es/run_simulation.py trained_model.msgpack  # use "--help" for options 
 ```
 
 Similarly, to train a PPO model, run:
 
 ```bash
-python groep6/ppo/train_ppo.py # use "--help" for options
+python groep6/ppo/train_ppo.py  # use "--help" for options
 ```
 
 to view the video:
 
 ```bash
-python groep6/ppo/run_simulation.py # use "--help" for options # TODO een werkend commando geven
-```
-
-### Python
-
-Example for ES, but similar for PPO:
-
-```python
-from groep6.es.train_es import train_es
-from groep6.es.run_simulation import create_video
-
-# to train a new model
-train_es() # add / change any desired parameters here
-
-# to run a simulation with a trained model stored at MODEL_FILE (default saving location of train_es)
-create_video() # add / change any desired parameters here
-```
-
-idem for PPO:
-
-```python
-# TODO check this
-from groep6.ppo.train_ppo import train_ppo
-from groep6.ppo.run_simulation import create_video
-
-# to train a new model
-train_ppo() # add / change any desired parameters here
-# to run a simulation with a trained model stored at MODEL_FILE (default saving location of train_ppo)
-create_video() # add / change any desired parameters here
+python groep6/ppo/run_simulation.py trained_model.zip # use "--help" for options
 ```
 
 Developed by:
