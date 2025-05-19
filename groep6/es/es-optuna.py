@@ -14,8 +14,9 @@ from groep6.util import generate_cpg_for_eval, print_optuna_results
 from groep6.wandb_evosax_logger import WandbEvosaxLogger
 
 ###########################################
-# DEPRECATED: This file is deprecated and will either be removed in the future or updated to use the current code.
-# This was used one of the previous versions of the code. But has not been updated since.
+# This script tries to optimize the es parameters sigma_init, hidden_dim1 and hidden_dim2.
+# While we did not find a significant improvement in the results for these parameters,
+# We still want to keep this script for future reference.
 ###########################################
 
 
