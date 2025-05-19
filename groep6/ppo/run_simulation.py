@@ -1,19 +1,14 @@
-from groep6.config import MAX_STEPS_PER_PPO_EPISODE
+from stable_baselines3 import PPO
+
+from groep6.config import MAX_STEPS_PER_PPO_EPISODE, VIDEO_TARGET_POSITION
 from groep6.ppo.brittle_star_gym_environment import BrittleStarGymEnv
-from groep6.ppo.config import make_model
+from groep6.ppo.config import DEVICE
 from groep6.render import show_video
 
-def model_load(model_path: str):
-    """Load the PPO model from the specified path."""
-    model = make_model()
-    trained_model = model.load(model_path)
-    trained_model.device = "cpu"
-    return trained_model
+import jax.numpy as jnp
 
-def create_video(model_ppo):
-    # Create the environment
-    env = BrittleStarGymEnv()
 
+def create_video(model_ppo, output_file, env):
     observation, info = env.reset()
     frames = []
 
@@ -35,15 +30,32 @@ def create_video(model_ppo):
         step += 1
 
     # Save video of trained agent
-    show_video(images=frames, sim_time=100, path="../trained_agent.mp4")
+    show_video(images=frames, sim_time=100, path=output_file)
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Create a video using a model")
-    parser.add_argument("model_file", help="The msgpack model of the brittle star")
+    parser = argparse.ArgumentParser(
+        description="Create a video using a model, all the arguments should be the same as during the training.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("model_path",
+                        help="The stable baseline 3 model (.zip) of the brittle star")
+    parser.add_argument("--output_file", type=str, default="../trained_agent.mp4",
+                        help="The output file to save the video")
+    parser.add_argument("--device", type=str, default=DEVICE,
+                        help="Which device to run on: cpu, gpu, auto")
+    parser.add_argument("--target_position", default=VIDEO_TARGET_POSITION, type=float, nargs=2,
+                        help="The target position of the brittle star")
+
     args = parser.parse_args()
 
-    trained_model = model_load(args.model_file)
-    create_video(trained_model)
+    # Create the environment
+    target_pos_3d = jnp.concatenate([jnp.array(args.target_position), jnp.array([0.0])])
+    env = BrittleStarGymEnv(target_position=target_pos_3d)
+
+    model = PPO("MlpPolicy", env, verbose=0, device=args.device)
+    trained_model = model.load(args.model_path)
+
+    create_video(trained_model, args.output_file, env)

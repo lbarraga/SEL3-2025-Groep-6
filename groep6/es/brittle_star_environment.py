@@ -215,7 +215,7 @@ EvaluationFn = typing.Callable[
 
 
 # Update create_evaluation_fn
-def create_evaluation_fn(model_obj: CPGController, unravel_fn: typing.Callable) -> EvaluationFn:
+def create_evaluation_fn(model_obj: CPGController, unravel_fn: typing.Callable, num_evaluations: int) -> EvaluationFn:
     """
     Creates the JIT-compiled, vmapped evaluation function using the Evaluator class.
     Now takes the NN model object and unravel function directly.
@@ -228,7 +228,7 @@ def create_evaluation_fn(model_obj: CPGController, unravel_fn: typing.Callable) 
         evaluator.evaluate_network_multiple_trials,
         model_obj=model_obj,
         unravel_fn_single=unravel_fn,
-        num_evaluations=NUM_EVALUATIONS_PER_INDIVIDUAL
+        num_evaluations=num_evaluations
     )
     # Vmap over rng and flat_model_params
     evaluate_batch_fn = jax.jit(jax.vmap(evaluate_single_network_fn, in_axes=(0, 0)))

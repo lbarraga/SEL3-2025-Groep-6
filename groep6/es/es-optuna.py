@@ -7,10 +7,17 @@ import optuna
 from evosax import OpenES
 from jax.flatten_util import ravel_pytree
 from brittle_star_environment import create_evaluation_fn
-from groep6.config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS
+from groep6.config import NUM_ARMS, NUM_OSCILLATORS_PER_ARM, SEED, FIXED_OMEGA, TARGET_SAMPLING_RADIUS, \
+    NUM_EVALUATIONS_PER_INDIVIDUAL
 from groep6.nn import CPGController
 from groep6.util import generate_cpg_for_eval, print_optuna_results
 from groep6.wandb_evosax_logger import WandbEvosaxLogger
+
+###########################################
+# DEPRECATED: This file is deprecated and will either be removed in the future or updated to use the current code.
+# This was used one of the previous versions of the code. But has not been updated since.
+###########################################
+
 
 # reduced number of generations for optuna
 NUM_GENERATIONS = 500
@@ -26,8 +33,7 @@ dummy_input = jnp.zeros((1, 2))
 
 model = CPGController(num_outputs=num_cpg_params_to_generate)
 
-# TODO: Add unravel_fn
-evaluate_batch_fn = create_evaluation_fn(model_obj=model, unravel_fn=None)
+evaluate_batch_fn = create_evaluation_fn(model_obj=model, unravel_fn=None, num_evaluations=NUM_EVALUATIONS_PER_INDIVIDUAL)
 generate_batch_cpg_for_eval = jax.vmap(generate_cpg_for_eval, in_axes=(0, 0, None, None))
 
 search_space = {

@@ -6,12 +6,14 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from groep6.config import NUM_OSCILLATORS_PER_ARM, NUM_ARMS
+
 
 def euler_solver(
-    current_time: float,
-    y: jnp.ndarray,
-    derivative_fn: Callable[[float, jnp.ndarray], jnp.ndarray],
-    delta_time: float
+        current_time: float,
+        y: jnp.ndarray,
+        derivative_fn: Callable[[float, jnp.ndarray], jnp.ndarray],
+        delta_time: float
 ) -> jnp.ndarray:
     slope = derivative_fn(current_time, y)
     next_y = y + delta_time * slope
@@ -36,10 +38,10 @@ class CPGState:
 
 class CPG:
     def __init__(
-        self,
-        amplitude_gain: float = 40,
-        offset_gain: float = 40,
-        dt: float = 0.01
+            self,
+            amplitude_gain: float = 40,
+            offset_gain: float = 40,
+            dt: float = 0.01
     ) -> None:
         self._amplitude_gain = amplitude_gain
         self._offset_gain = offset_gain
@@ -48,18 +50,18 @@ class CPG:
 
     @property
     def num_oscillators(self) -> int:
-        return 10 # TODO dont hardcode
+        return NUM_OSCILLATORS_PER_ARM * NUM_ARMS
 
     @staticmethod
     def phase_de(omegas: jnp.ndarray) -> jnp.ndarray:
-        return omegas # No coupling, so we return just the omegas
+        return omegas  # No coupling, so we return just the omegas
 
     @staticmethod
     def second_order_de(
-        gain: float,
-        modulator: jnp.ndarray,
-        values: jnp.ndarray,
-        dot_values: jnp.ndarray
+            gain: float,
+            modulator: jnp.ndarray,
+            values: jnp.ndarray,
+            dot_values: jnp.ndarray
     ) -> jnp.ndarray:
         return gain * ((gain / 4) * (modulator - values) - dot_values)
 
@@ -69,9 +71,9 @@ class CPG:
 
     @staticmethod
     def output(
-        offsets: jnp.ndarray,
-        amplitudes: jnp.ndarray,
-        phases: jnp.ndarray
+            offsets: jnp.ndarray,
+            amplitudes: jnp.ndarray,
+            phases: jnp.ndarray
     ) -> jnp.ndarray:
         return offsets + amplitudes * jnp.cos(phases)
 
@@ -99,7 +101,7 @@ class CPG:
         new_phases = self._solver(
             current_time=state.time,
             y=state.phases,
-            derivative_fn=lambda t,y: self.phase_de(omegas=state.omegas),
+            derivative_fn=lambda t, y: self.phase_de(omegas=state.omegas),
             delta_time=self._dt
         )
         new_dot_amplitudes = self._solver(
@@ -156,7 +158,6 @@ def modulate_cpg(
         new_omega: float,
         max_joint_limit: float
 ) -> CPGState:
-
     X = jnp.clip(new_X, -max_joint_limit, max_joint_limit)
     R = jnp.clip(new_R, -max_joint_limit, max_joint_limit)
     omegas = jnp.broadcast_to(new_omega, R.shape)

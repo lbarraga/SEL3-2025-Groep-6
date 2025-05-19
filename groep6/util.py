@@ -4,7 +4,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from config import TARGET_SAMPLING_RADIUS, FIXED_OMEGA
+from groep6.config import FIXED_OMEGA, TARGET_SAMPLING_RADIUS
 
 
 def sample_random_target_pos(rng_single):
@@ -14,12 +14,14 @@ def sample_random_target_pos(rng_single):
     target_pos = jnp.array([radius * jnp.cos(angle), radius * jnp.sin(angle), 0.0])
     return target_pos
 
+
 def calculate_direction(target_pos: List[float]) -> List[float]:
     """Calculates the normalized direction vector from the origin to the target position."""
     target_pos_2d = target_pos[:2]
     norm = TARGET_SAMPLING_RADIUS
     normalized_direction = target_pos_2d / norm
     return normalized_direction
+
 
 def normalize_corner(omega: float) -> float:
     """Normalizes the direction vector to have a magnitude of 1."""
@@ -28,6 +30,7 @@ def normalize_corner(omega: float) -> float:
     while omega > 2 * jnp.pi:
         omega -= 2 * jnp.pi
     return omega
+
 
 def generate_cpg_for_eval(
         rng_single,
@@ -44,6 +47,7 @@ def generate_cpg_for_eval(
     cpg_params = jnp.concatenate([generated_rx_params, jnp.array([FIXED_OMEGA])])
 
     return cpg_params, target_pos
+
 
 def print_optuna_results(pickle_file: str):
     with open(pickle_file, "rb") as f:
