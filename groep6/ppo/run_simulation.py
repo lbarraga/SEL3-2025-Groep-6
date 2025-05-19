@@ -1,8 +1,8 @@
 from stable_baselines3 import PPO
 
-from groep6.config import MAX_STEPS_PER_PPO_EPISODE, VIDEO_TARGET_POSITION
+from groep6.defaults import MAX_STEPS_PER_PPO_EPISODE, VIDEO_TARGET_POSITION
 from groep6.ppo.brittle_star_gym_environment import BrittleStarGymEnv
-from groep6.ppo.config import DEVICE
+from groep6.ppo.defaults import DEVICE
 from groep6.render import show_video
 
 import jax.numpy as jnp

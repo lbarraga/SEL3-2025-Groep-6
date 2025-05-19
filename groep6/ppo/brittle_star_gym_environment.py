@@ -8,7 +8,7 @@ import numpy as np
 from gymnasium.spaces import Box
 from jax import Array
 
-from groep6.config import (
+from groep6.defaults import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, CONTROL_TIMESTEP,
     create_environment, CLOSE_ENOUGH_DISTANCE, MAX_STEPS_PER_PPO_EPISODE,
     TARGET_REACHED_BONUS, FIXED_OMEGA

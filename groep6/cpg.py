@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from groep6.config import NUM_OSCILLATORS_PER_ARM, NUM_ARMS
+from groep6.defaults import NUM_OSCILLATORS_PER_ARM, NUM_ARMS
 
 
 def euler_solver(

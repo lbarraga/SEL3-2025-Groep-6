@@ -5,12 +5,12 @@ import jax
 import jax.numpy as jnp
 
 from groep6.SimulationState import SimulationState, create_initial_simulation_state
-from groep6.config import (
+from groep6.cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
+from groep6.defaults import (
     NUM_ARMS, NUM_SEGMENTS_PER_ARM, NUM_OSCILLATORS_PER_ARM, MAX_STEPS_PER_EPISODE, create_environment,
     CONTROL_TIMESTEP, CLOSE_ENOUGH_DISTANCE, MAXIMUM_TIME_BONUS, TARGET_REACHED_BONUS, TARGET_SAMPLING_RADIUS,
-    FIXED_OMEGA, NUM_EVALUATIONS_PER_INDIVIDUAL, NUM_INFERENCES_PER_TRIAL# Add new imports
+    FIXED_OMEGA, NUM_INFERENCES_PER_TRIAL  # Add new imports
 )
-from groep6.cpg import CPG, modulate_cpg, map_cpg_outputs_to_actions, CPGState
 from groep6.nn import CPGController
 
 

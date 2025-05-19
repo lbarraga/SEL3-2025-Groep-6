@@ -4,7 +4,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from groep6.config import FIXED_OMEGA, TARGET_SAMPLING_RADIUS
+from groep6.defaults import FIXED_OMEGA, TARGET_SAMPLING_RADIUS
 
 
 def sample_random_target_pos(rng_single):

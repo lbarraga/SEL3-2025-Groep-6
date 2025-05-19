@@ -5,7 +5,7 @@ from stable_baselines3.common.monitor import Monitor
 from wandb.integration.sb3 import WandbCallback
 
 from groep6.ppo.brittle_star_gym_environment import BrittleStarGymEnv
-from groep6.ppo.config import (
+from groep6.ppo.defaults import (
     WANDB_PROJECT_NAME, N_ENVS, LEARNING_RATE, N_STEPS, BATCH_SIZE, N_EPOCHS, GAMMA,
     GAE_LAMBDA, CLIP_RANGE, DEVICE, POLICY_KWARGS, TOTAL_TIMESTEPS, MODEL_FILE
 )

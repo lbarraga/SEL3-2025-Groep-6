@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from groep6.SimulationState import SimulationState
 from groep6.es.brittle_star_environment import EpisodeEvaluator, calculate_relative_direction, get_joint_positions
-from groep6.config import (
+from groep6.defaults import (
     NUM_ARMS,
     NUM_OSCILLATORS_PER_ARM, SEED, MAX_STEPS_PER_EPISODE, NUM_INFERENCES_PER_TRIAL, FIXED_OMEGA, VIDEO_TARGET_POSITION
 )
